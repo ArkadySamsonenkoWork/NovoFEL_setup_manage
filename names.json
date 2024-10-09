@@ -1,0 +1,15 @@
+{
+  "correctors":
+["1MXY1_Y", "1MXY1_X",
+"1MXY2_Y", "1MXY2_X",
+"1MXY3_Y", "1MXY3_X",
+"1MXY4_Y", "1MXY4_X",
+"1MXY5_Y", "1MXY5_X",
+"1MXY6_Y", "1MXY6_X",
+"1MXY7_Y", "1MXY7_X",
+"1MXY8_Y", "1MXY8_X",
+"1MXY9_Y", "1MXY9_X"
+],
+  "solenoids": ["1MS1", "1MS2", "1MS3", "1MS4", "1MS5", "1MS6", "1MS7", "1MS7", "1MS7"],
+  "detectors": ["1BPM3"]
+}
