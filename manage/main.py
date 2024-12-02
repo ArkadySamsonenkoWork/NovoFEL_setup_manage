@@ -1,10 +1,13 @@
 import json
 from abc import ABC, abstractmethod
 import time
+import typing as tp
 import sys
 import re
+import yaml
 from pathlib import Path
 
+#from epics import PV
 from Servers.Server import PV
 import csv
 
@@ -61,21 +64,25 @@ class Saver:
         path_time = path_time.replace(":", "_")
         path = Path(folder_path) / Path(path_time)
         self.file = open(path, 'a')
-        self.writer =  csv.DictWriter(self.file, delimiter=' ', fieldnames=names + ["time"])
+        self.writer =  csv.DictWriter(self.file, delimiter=' ', fieldnames=names + ["time", "milliseconds"])
         self.writer.writeheader()
+        self.start_time_m = time.time() * 1000
 
     def save(self):
         for data in self.history:
-            print(1234)
             self.writer.writerow(data)
         self.history = []
 
-    def append(self, data: dict[str, float | str]):
+    def _get_milliseconds(self):
+        return self.start_time_m - time.time() * 1000
+
+    def append(self, data: dict[str, tp.Union[float, int]]):
         history = data.copy()
-        current_time = time.strftime("%H:%M:%S", time.localtime())
+        current_time = time.strftime("%Y:%m:%d:%T", time.localtime())
         history["time"] = current_time
+        history["milliseconds"] = self._get_milliseconds()
         self.history.append(history)
-        if len(data) >= self.history_limit:
+        if len(self.history) >= self.history_limit:
             self.save()
 
     def __enter__(self):
@@ -87,54 +94,90 @@ class Saver:
 
 
 class Device:
-    magnets_prefix_start = ("MXY", "MS")
+    magnets_prefix_start = ("MXY", "MS", "MQ")
     detectors_prefix_start = ("BPM", )
-    def __init__(self, names: list[str], setup="manual"):
+    delimiter_eps = 1e-5
+    def __init__(self, path_to_save: tp.Union[str, Path], names: list[str], device_config_path: tp.Union[str, Path],
+                 save_history_limit: int = 1000, save_eps: float=1e-3):
         self._names = names
         self._handlers = {name: PV(self._full_name(name)) for name in names}
-        self.setup = setup
+        self.save_history_limit = save_history_limit
+        self.path_to_save = path_to_save
+        self.save_eps = save_eps
+
+    def _set_limits(self, device_config_path):
+        path = Path(device_config_path) / Path("devise_limits.yaml")
+        with open(path, "r") as read_file:
+            data = yaml.safe_load(read_file)
+        self.limits =  data["solenoids"] + data["correctors"]
+
+    def __enter__(self):
+        return self
+
+    def _init_saver(self):
+        mean_steps = 100
+        self.saver = Saver(self.path_to_save, self.save_history_limit, self._names)
+        self.parameters = self._get_mean_values(mean_steps)
 
     def _full_name(self, name: str):
         if re.sub(r"[0-9]", "", name).startswith(self.magnets_prefix_start):
             return f"MSC_{name}_IIN"
         elif re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start):
-            return f"BPMS_{name}"
+            return f"BPMS1_{name}"
         else:
             assert False, f"Unidentified prefix in name: {name}"
 
     def read(self, name: str) -> float:
-        return self._handlers[name].get()
+        value = self._handlers[name].get()
+        if value is None:
+            value = 0
+            raise Warning(f"The handler {name} is None. Set the zero value")
+        return value
 
     def set(self, name: str, value: float):
-        self._handlers[name].put(value)
+        if self.limits[name][0] <= value <= self.limits[name][1]:
+            self._handlers[name].put(value)
+        else:
+            raise Warning(f"You are out for the device limits for {name}. You want to set value {value} but limits are {self.limits[name][0]} and {self.limits[name][1]}")
 
-    def _check_updates(self, old_values, new_values, eps):
+    def _check_updates(self, old_values, new_values):
         flag = False
         for old_value, new_value in zip(old_values.values(), new_values.values()):
-            delta = abs(new_value - old_value) / old_value
-            if delta >= eps:
+            delta = abs(new_value - old_value) / (old_value + self.delimiter_eps)
+            if delta >= self.save_eps:
                 flag = True
                 return flag
         return flag
 
-    def run_reading(self, path, timing=2, eps=1e-2, history_limit=10_000):
-        with Saver(path, history_limit, self._names) as saver:
-            old_values = {name: self.read(name) for name in self._names}
-            saver.append(old_values)
-            while True:
-                time.sleep(timing)
-                new_values = {name: self.read(name) for name in self._names}
-                if self._check_updates(old_values, new_values, eps):
-                    old_values = new_values
-                    saver.append(old_values)
+    def _get_mean_values(self, mean_steps: int):
+        values = [0 for name in self._names]
+        for step in range(mean_steps):
+            values = [values[i] + self.read(name) for i, name in enumerate(self._names)]
+        values = {name: values[i] / mean_steps for i, name in enumerate(self._names)}
+        return values
+
+    def get_parameters(self, mean_steps: int = 100):
+        new_parameters = self._get_mean_values(mean_steps)
+        if self._check_updates(self.parameters , new_parameters):
+            self.parameters = new_parameters
+            self.saver.append(self.parameters)
+        return new_parameters
+
+    def run_continuous_reading(self):
+        while True:
+            _ = self.get_parameters()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.saver.__exit__(exc_type, exc_val, exc_tb)
 
 def get_names(path):
     with open(path, "r") as read_file:
-        names = json.load(read_file)
+        names = yaml.safe_load(read_file)
     return names
 
 def experement_1():
-    names = get_names("../analysis/names.json")["ordered_data"]
+    names = get_names("./configs/device_config/names.yaml")["ordered_data"]
+    print(names)
     folder_path = "./data"
     device = Device(names)
     device.run_reading(folder_path)
