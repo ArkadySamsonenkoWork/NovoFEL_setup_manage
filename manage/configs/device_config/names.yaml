@@ -11,9 +11,8 @@ typed_data:
       "1MXY5_Y",
       "1MXY5_X",
       "1MXY6_Y",
-      "1MQ71_X"
-    ],
-    solenoids: [
+      "1MQ71_X"]
+  solenoids: [
       "1MS1",
       "1MS2",
       "1MS3",
@@ -22,8 +21,8 @@ typed_data:
       "1MS6",
       "1MS7",
       "1MS8"
-    ],
-    detectors: [
+    ]
+  detectors: [
       "1BPM3_X",
       "1BPM3_Y",
       "1BPM3_SUM"
@@ -54,4 +53,3 @@ ordered_data: [
     "1BPM3_X",
     "1BPM3_SUM"
   ]
-}
