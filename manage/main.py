@@ -1,27 +1,37 @@
-from abc import ABC, abstractmethod
-import time
-import shutil
-import typing as tp
+import itertools
+import csv
 import re
+import shutil
+import time
+import typing as tp
 import warnings
-
-import torch
-import yaml
+from abc import ABC, abstractmethod
 from pathlib import Path
 
-#from epics import PV
-from Servers.Server import PV
-import csv
 import numpy as np
+import torch
+import yaml
+from matplotlib import pyplot as plt
+import matplotlib
+
+# from epics import PV
+from Servers.Server import PV
+
+
+def yaml_save(folder_data_path: tp.Union[str, Path], name: str, data: dict[str, tp.Any]):
+    timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    path_file = f"{timestamp}_{name}.yaml"
+    path_file = Path(folder_data_path) / Path(path_file)
+    with open(path_file, 'w') as file:
+        yaml.dump(data, file, default_flow_style=False)
 
 
 class Saver:
     def __init__(self, folder_data_path, history_limit, names: list[str]):
         self.history = []
         self.history_limit = history_limit
-        path_time = time.strftime("%Y:%m:%d:%H:%M:%S", time.localtime())
-        path_time = path_time.replace(":", "_")
-        path_time = f"{path_time}_full_data"
+        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+        path_time = f"{timestamp}_full_data"
         path = Path(folder_data_path) / Path(path_time)
         self.file = open(path, 'a')
         self.writer =  csv.DictWriter(self.file, delimiter=' ', fieldnames=names + ["time", "milliseconds"])
@@ -33,14 +43,14 @@ class Saver:
             self.writer.writerow(data)
         self.history = []
 
-    def _get_milliseconds(self):
+    def _get_elapsed_milliseconds(self):
         return self.start_time_m - time.time() * 1000
 
     def append(self, data: dict[str, tp.Union[float, int]]):
         history = data.copy()
-        current_time = time.strftime("%Y:%m:%d:%T", time.localtime())
+        current_time = time.strftime("%Y_%m_%d_%T", time.localtime())
         history["time"] = current_time
-        history["milliseconds"] = self._get_milliseconds()
+        history["milliseconds"] = self._get_elapsed_milliseconds()
         self.history.append(history)
         if len(self.history) >= self.history_limit:
             self.save()
@@ -57,27 +67,28 @@ class Device:
     solenoids_prefix_start = ("MS", )
     detectors_prefix_start = ("BPM",)
     delimiter_eps = 1e-5
+
     def __init__(self, path_to_save: tp.Union[str, Path], config_path: tp.Union[str, Path], names: list[str],
                  save_history_limit: int = 1000, save_eps: float=1e-3):
-        self._names = names
-        self.limits = self._set_limits(config_path)
+        self.names = names
+        self.limits = self._load_limits(config_path)
         self._handlers = {name: PV(self._full_name(name)) for name in names}
         self.save_history_limit = save_history_limit
         self.path_to_save = path_to_save
         self.save_eps = save_eps
-        self.detector_names, self.solenoid_names, self.corrector_names = self._get_typed_names()
-        self.saver, self.parameters = self._init_saver()
+        self.detector_names, self.solenoid_names, self.corrector_names = self._categorize_names()
+        self.saver, self.parameters = self._initialize_saver()
 
     def __enter__(self):
         return self
 
-    def _get_typed_names(self):
-        detector_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
-        solenoid_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
-        corrector_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
+    def _categorize_names(self):
+        detector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
+        solenoid_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
+        corrector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
         return detector_names, solenoid_names, corrector_names
 
-    def _set_limits(self, config_path):
+    def _load_limits(self, config_path):
         path = Path(config_path) / Path("device_config/device_limits.yaml")
         limits = {}
         with open(path, "r") as read_file:
@@ -86,10 +97,10 @@ class Device:
         limits.update(data["correctors"])
         return limits
 
-    def _init_saver(self):
+    def _initialize_saver(self):
         mean_steps = 100
-        saver = Saver(self.path_to_save, self.save_history_limit, self._names)
-        parameters = self._get_mean_values(mean_steps)
+        saver = Saver(self.path_to_save, self.save_history_limit, self.names)
+        parameters = self._get_mean_parameters(mean_steps)
         saver.append(parameters)
         return saver, parameters
 
@@ -125,15 +136,16 @@ class Device:
                 return flag
         return flag
 
-    def _get_mean_values(self, mean_steps: int):
-        values = [0 for name in self._names]
-        for step in range(mean_steps):
-            values = [values[i] + self.read(name) for i, name in enumerate(self._names)]
-        values = {name: values[i] / mean_steps for i, name in enumerate(self._names)}
+    def _get_mean_parameters(self, steps: int):
+        total_values = {name: 0.0 for name in self.names}
+        for _ in range(steps):
+            for name in self.names:
+                total_values[name] += self.read(name)
+        values = {name: total / steps for name, total in total_values.items()}
         return values
 
     def get_parameters(self, mean_steps: int = 100):
-        new_parameters = self._get_mean_values(mean_steps)
+        new_parameters = self._get_mean_parameters(mean_steps)
         if self._check_updates(self.parameters , new_parameters):
             self.parameters = new_parameters
             self.saver.append(self.parameters)
@@ -219,7 +231,7 @@ class Model(ABC):
 
 class BayessianModel(Model):
     def __init__(self, names: list[str]):
-        self._names = names
+        self.names = names
 
     def __call__(self, values):
         pass
@@ -239,7 +251,7 @@ class Agent:
                  device: Device):
         self.model = model
         self.density_generator = DensityGetter(config_folder, "torch", 42)
-        self._names = names
+        self.names = names
         self.folder_data_path = folder_data_path
 
         mean_std_path, derivative_steps_path, detector_noize_path = self._get_pathes(config_folder)
@@ -248,7 +260,7 @@ class Agent:
         self.detector_names, self.solenoid_names, self.corrector_names = self._get_typed_names()
         self.device = device
         self.derivative_steps = self._get_derivative_steps(derivative_steps_path)
-        self.derivative_steps_norm = self._get_derivative_steps(derivative_steps_path)
+        self.derivative_steps_norm = self._denormalize_std(self.derivative_steps)
         self.detector_noize_level = detector_noize_path
 
     def _get_pathes(self, config_path: tp.Union[str, Path]):
@@ -258,14 +270,13 @@ class Agent:
         return mean_std_path, derivative_steps_path, detector_noize_level
 
     def _save_meta(self, folder_path: tp.Union[str, Path], config_path: tp.Union[str, Path]):
-        path_time = time.strftime("%Y:%m:%d:%H:%M:%S", time.localtime())
-        path_time = path_time.replace(":", "_")
-        path_new_config = f"{path_time}_config_folder"
-        path_new_config = Path(folder_path) / Path(path_new_config)
-        shutil.copytree(config_path, path_new_config)
+        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+        updated_config_path = f"{timestamp}_config_folder"
+        updated_config_path = Path(folder_path) / Path(updated_config_path)
+        shutil.copytree(config_path, updated_config_path)
 
         model_meta = self.model.metadata()
-        path_meta = f"{path_time}_model_meta.yaml"
+        path_meta = f"{timestamp}_model_meta.yaml"
         path_meta = Path(folder_path) / Path(path_meta)
         with open(path_meta, 'w') as file:
             yaml.dump(model_meta, file, default_flow_style=False)
@@ -310,9 +321,9 @@ class Agent:
         return denorm_values
 
     def _get_typed_names(self):
-        detector_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
-        solenoid_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
-        corrector_names = [name for name in self._names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
+        detector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
+        solenoid_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
+        corrector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
         return detector_names, solenoid_names, corrector_names
 
     def _get_derivative_steps(self, path: tp.Union[str, Path]):
@@ -332,6 +343,25 @@ class Agent:
         self.device.set(solenoid, parameters[solenoid])
 
         return detectors_old, detectors_new
+
+    def get_full_data(self):
+        derivatives = self.measure_derivatives(self.detector_names, self.solenoid_names)
+        parameters = self.device.get_parameters()
+        parameters.update({f"derivative_{key}": value for key, value in derivatives.items()})
+        return parameters
+
+    def read_detectors_noize(self):
+        detectors_noize = yaml.safe_load(self.detector_noize_level)
+        return detectors_noize
+
+    def measure_detectors_noize(self, times: int=10):
+        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+        path_detectors = f"{timestamp}_detectors_mean_std.yaml"
+        path_detectors = Path(self.folder_data_path) / Path(path_detectors)
+        detectors_mean_std = self.device.get_detectors_mean_std(times)
+        with open(path_detectors, 'w') as file:
+            yaml.dump(detectors_mean_std, file, default_flow_style=False)
+        return {name: data["std"] for name, data in detectors_mean_std.items()}
 
     def measure_derivatives(self, detector_names: list[str], solenoid_names: list[str]):
         derivatives = {}
@@ -364,37 +394,123 @@ class Agent:
         return differences
 
     def save_full_data(self, name: str):
-        path_time = time.strftime("%Y:%m:%d:%H:%M:%S", time.localtime())
-        path_time = path_time.replace(":", "_")
-        path_values = f"{path_time}_{name}.yaml"
+        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+        path_values = f"{timestamp}_{name}.yaml"
         path_values = Path(self.folder_data_path) / Path(path_values)
-        parameters = self._get_full_data()
+        parameters = self.get_full_data()
         with open(path_values, 'w') as file:
             yaml.dump(parameters, file, default_flow_style=False)
 
-    def _get_full_data(self):
-        derivatives = self.measure_derivatives(self.detector_names, self.solenoid_names)
-        parameters = self.device.get_parameters()
-        parameters.update({f"derivative_{key}": value for key, value in derivatives.items()})
-        return parameters
+    def _measure_execution_time(self, funct: tp.Callable, *args):
+        start_time = time.time()
+        out = funct(*args)
+        end_time = time.time()
+        return out, end_time - start_time
 
-    def read_detectors_noize(self):
-        detectors_noize = yaml.safe_load(self.detector_noize_level)
-        return detectors_noize
+    def _save_differences_solenoids(self,
+                                    subfolder: tp.Union[str,Path],
+                                    increments: list[float],
+                                    differences: dict[int, dict[str, tp.Any]],
+                                    derivatives: dict[int, dict[str, tp.Any]],
+                                    solenoid_steps: dict[int, dict[str, tp.Any]]
+                                    ):
+        font = {'size': 6}
+        matplotlib.rc('font', **font)
+        solenoid_names = list(list(solenoid_steps.values())[0].keys())
+        tot_subplots = len(solenoid_names)
 
-    def measure_detectors_noize(self):
-        path_time = time.strftime("%Y:%m:%d:%H:%M:%S", time.localtime())
-        path_time = path_time.replace(":", "_")
-        path_detectors = f"{path_time}_detectors_mean_std.yaml"
-        path_detectors = Path(self.folder_data_path) / Path(path_detectors)
-        detectors_mean_std = self.device.get_detectors_mean_std(10)
-        with open(path_detectors, 'w') as file:
-            yaml.dump(detectors_mean_std, file, default_flow_style=False)
-        return {name: data["std"] for name, data in detectors_mean_std.items()}
+        i = 0
+        for plot_num in range(2):
+            fig_solenoids, axes = plt.subplots(tot_subplots // 4, 2)
+            for axis in itertools.chain(*axes):
+                steps = [solenoid_steps[increment][solenoid_names[i]] for increment in increments]
+                axis.scatter(increments, steps)
+                axis.set_title(solenoid_names[i])
+                i += 1
+            path = Path(subfolder) / Path(f"solenoids_vs_increments_{plot_num}.png")
+            fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
+
+        i = 0
+        for plot_num in range(2):
+            fig_solenoids, axes = plt.subplots(tot_subplots // 4, 2)
+            for axis in itertools.chain(*axes):
+                differences_detectors = [differences[increment][solenoid_names[i]] for increment in increments]
+                steps = [solenoid_steps[increment][solenoid_names[i]] for increment in increments]
+                for detector in self.detector_names:
+                    differences_detector = [data[detector] for data in differences_detectors]
+                    axis.scatter(steps, differences_detector, label=detector)
+                axis.set_title(solenoid_names[i])
+                axis.legend()
+                i += 1
+            path = Path(subfolder) / Path(f"differences_vs_solenoids_{plot_num}.png")
+            fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
+
+        i = 0
+        for plot_num in range(2):
+            fig_solenoids, axes = plt.subplots(tot_subplots // 4, 2)
+            for axis in itertools.chain(*axes):
+                derivatives_detectors = [derivatives[increment][solenoid_names[i]] for increment in increments]
+                steps = [solenoid_steps[increment][solenoid_names[i]] for increment in increments]
+                for detector in self.detector_names:
+                    differences_detector = [data[detector] for data in derivatives_detectors]
+                    axis.scatter(steps, differences_detector, label=detector)
+                axis.set_title(solenoid_names[i])
+                axis.legend()
+                i += 1
+            path = Path(subfolder) / Path(f"derevatieves_vs_solenoids_{plot_num}.png")
+            fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
+
+
+    def measure_differences_solenoids(self, subfolder_path: tp.Union[str, Path],
+                                      times: dict[str, tp.Any], meta: dict[str, tp.Any]):
+        increments = [1.4, 1.2, 1.0, 0.8, 0.6, 0.4, 0.2]
+        start_steps = self.derivative_steps.copy()
+        differences = {}
+        derivatives = {}
+        times["differences"] = {}
+        times["derivatives"] = {}
+        solenoid_steps = {}
+        for increment in increments:
+            self.derivative_steps = {key: value * increment for key, value in start_steps.items()}
+            differences[increment], timedel = self._measure_execution_time(
+                self.measure_differences, self.detector_names, self.solenoid_names
+            )
+            times["differences"][increment] = timedel
+            derivatives[increment], timedel = self._measure_execution_time(
+                self.measure_derivatives, self.detector_names, self.solenoid_names
+            )
+            times["derivatives"][increment] = timedel
+            solenoid_steps[increment] = self.derivative_steps.copy()
+
+        meta["differences"] = differences
+        meta["derivatives"] = derivatives
+        meta["solenoid_steps"] = solenoid_steps
+        self._save_differences_solenoids(subfolder_path, increments, differences, derivatives, solenoid_steps)
+        return meta, times
+
+
+    def measure_hyper_parameters(self):
+        meta = {}
+        times = {}
+
+        subfolder_path = Path(self.folder_data_path) / Path(f"measured_meta_hyperparameters")
+        subfolder_path.mkdir(mode=0o777, parents=False, exist_ok=True)
+
+        detector_noize, timedel = self._measure_execution_time(self.measure_detectors_noize, 10)
+        meta["detector_noize"] = detector_noize
+        times["detector_noize"] = timedel
+        full_data, timedel = self._measure_execution_time(self.get_full_data)
+        times["full_data"] = timedel
+        meta["full_data"] = full_data
+        meta, times = self.measure_differences_solenoids(subfolder_path, times, meta)
+        meta["times"] = times
+
+        names = ["times", "full_data", "detector_noize", "differences", "derivatives", "solenoid_steps"]
+        for name in names:
+            yaml_save(subfolder_path, name, meta[name])
 
 def get_subfolder_path(folder_path: tp.Union[str, Path]):
-    data_time = time.strftime("%Y:%m:%d", time.localtime())
-    data_time = data_time.replace(":", "_")
+    data_time = time.strftime("%Y_%m_%d", time.localtime())
     subfolder_path = Path(folder_path) / Path(data_time)
     subfolder_path.mkdir(mode=0o777, parents=False, exist_ok=True)
     run = 1
@@ -424,6 +540,7 @@ def experement_1():
         agent.save_full_data("start")
         agent.save_full_data("end")
         density = agent.density_generator.get_values(100)
+        agent.measure_hyper_parameters()
         print(density[0])
 
 
