@@ -276,10 +276,8 @@ class Agent:
         shutil.copytree(config_path, updated_config_path)
 
         model_meta = self.model.metadata()
-        path_meta = f"{timestamp}_model_meta.yaml"
-        path_meta = Path(folder_path) / Path(path_meta)
-        with open(path_meta, 'w') as file:
-            yaml.dump(model_meta, file, default_flow_style=False)
+        yaml_save(folder_path, "model_meta", model_meta)
+
 
     def _read_noize_level(self, path: tp.Union[str, Path]):
         with open(path, 'r') as file:
@@ -355,12 +353,8 @@ class Agent:
         return detectors_noize
 
     def measure_detectors_noize(self, times: int=10):
-        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-        path_detectors = f"{timestamp}_detectors_mean_std.yaml"
-        path_detectors = Path(self.folder_data_path) / Path(path_detectors)
         detectors_mean_std = self.device.get_detectors_mean_std(times)
-        with open(path_detectors, 'w') as file:
-            yaml.dump(detectors_mean_std, file, default_flow_style=False)
+        yaml_save(self.folder_data_path, "detectors_mean_std", detectors_mean_std)
         return {name: data["std"] for name, data in detectors_mean_std.items()}
 
     def measure_derivatives(self, detector_names: list[str], solenoid_names: list[str]):
@@ -394,12 +388,8 @@ class Agent:
         return differences
 
     def save_full_data(self, name: str):
-        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-        path_values = f"{timestamp}_{name}.yaml"
-        path_values = Path(self.folder_data_path) / Path(path_values)
         parameters = self.get_full_data()
-        with open(path_values, 'w') as file:
-            yaml.dump(parameters, file, default_flow_style=False)
+        yaml_save(self.folder_data_path, name, parameters)
 
     def _measure_execution_time(self, funct: tp.Callable, *args):
         start_time = time.time()
