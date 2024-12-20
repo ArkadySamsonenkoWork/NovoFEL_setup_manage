@@ -16,27 +16,54 @@ import matplotlib
 
 # from epics import PV
 from Servers.Server import PV
+from plot_app import PlotApp
 
 
 def yaml_save(folder_data_path: tp.Union[str, Path], name: str, data: dict[str, tp.Any]):
-    timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-    path_file = f"{timestamp}_{name}.yaml"
+    #timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    path_file = f"{name}.yaml"
     path_file = Path(folder_data_path) / Path(path_file)
     with open(path_file, 'w') as file:
         yaml.dump(data, file, default_flow_style=False)
 
+def save_start_time(folder_data_path: tp.Union[str, Path]):
+    timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    data = {"start_time": timestamp}
+    yaml_save(folder_data_path, "start_time", data)
 
-class Saver:
-    def __init__(self, folder_data_path, history_limit, names: list[str]):
+def save_finish_time(folder_data_path: tp.Union[str, Path]):
+    timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+    data = {"finish_time": timestamp}
+    yaml_save(folder_data_path, "finish_time", data)
+
+def get_typed_names(element_names):
+    DETECTOR_PREFIXES = ("BPM",)
+    SOLENOID_PREFIXES = ("MS",)
+    CORRECTOR_PREFIXES = ("MXY", "MQ")
+    def filter_names(prefixes):
+        return [name for name in element_names if re.sub(r"[0-9]", "", name).startswith(prefixes)]
+
+    return (
+        filter_names(DETECTOR_PREFIXES),
+        filter_names(SOLENOID_PREFIXES),
+        filter_names(CORRECTOR_PREFIXES),)
+
+class FullDataSaver:
+    DELIMITER_EPS = 1e-5
+
+    def __init__(self, folder_data_path, history_limit, names: list[str], save_eps: float):
         self.history = []
         self.history_limit = history_limit
-        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-        path_time = f"{timestamp}_full_data"
+        path_time = f"full_data"
         path = Path(folder_data_path) / Path(path_time)
+        self.folder_data_path = folder_data_path
         self.file = open(path, 'a')
         self.writer =  csv.DictWriter(self.file, delimiter=' ', fieldnames=names + ["time", "milliseconds"])
         self.writer.writeheader()
         self.start_time_m = time.time() * 1000
+        save_start_time(folder_data_path)
+        self.parameters = {name: 0.0 for name in names}
+        self.save_eps = save_eps
 
     def save(self):
         for data in self.history:
@@ -46,47 +73,64 @@ class Saver:
     def _get_elapsed_milliseconds(self):
         return self.start_time_m - time.time() * 1000
 
-    def append(self, data: dict[str, tp.Union[float, int]]):
-        history = data.copy()
-        current_time = time.strftime("%Y_%m_%d_%T", time.localtime())
-        history["time"] = current_time
-        history["milliseconds"] = self._get_elapsed_milliseconds()
-        self.history.append(history)
-        if len(self.history) >= self.history_limit:
-            self.save()
+    def _check_updates(self, old_values, new_values):
+        flag = False
+        for old_value, new_value in zip(old_values.values(), new_values.values()):
+            delta = abs(new_value - old_value) / (old_value + self.DELIMITER_EPS)
+            if delta >= self.save_eps:
+                flag = True
+                return flag
+        return flag
+
+    def append(self, parameters: dict[str, tp.Union[float, int]]):
+        if self._check_updates(self.parameters, parameters):
+            self.parameters = parameters
+            history = parameters.copy()
+            current_time = time.strftime("%Y_%m_%d_%T", time.localtime())
+            history["time"] = current_time
+            history["milliseconds"] = self._get_elapsed_milliseconds()
+            self.history.append(history)
+            if len(self.history) >= self.history_limit:
+                self.save()
+        else:
+            pass
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        save_finish_time(self.folder_data_path)
         self.save()
         self.file.close()
 
 class Device:
-    correctors_prefix_start = ("MXY", "MQ")
-    solenoids_prefix_start = ("MS", )
-    detectors_prefix_start = ("BPM",)
-    delimiter_eps = 1e-5
+    DETECTOR_PREFIXES = ("BPM",)
+    SOLENOID_PREFIXES = ("MS",)
+    CORRECTOR_PREFIXES = ("MXY", "MQ")
 
-    def __init__(self, path_to_save: tp.Union[str, Path], config_path: tp.Union[str, Path], names: list[str],
-                 save_history_limit: int = 1000, save_eps: float=1e-3):
-        self.names = names
+    def __init__(self, folder_data_path: tp.Union[str, Path], config_path: tp.Union[str, Path], element_names: list[str],
+                 mean_steps: int = 1, save_history_limit: int = 1000, save_eps: float=1e-3, plot_figs=False,
+                 read_every: float = 0.2):
+        self.read_every = read_every
+        self.mean_steps = mean_steps
+        self.current_time = time.time()
+        self.element_names = element_names
+        self.parameters = {name: 0.0 for name in element_names}
+
         self.limits = self._load_limits(config_path)
-        self._handlers = {name: PV(self._full_name(name)) for name in names}
+        self._handlers = {name: PV(self._full_name(name)) for name in element_names}
         self.save_history_limit = save_history_limit
-        self.path_to_save = path_to_save
-        self.save_eps = save_eps
-        self.detector_names, self.solenoid_names, self.corrector_names = self._categorize_names()
-        self.saver, self.parameters = self._initialize_saver()
+        self.folder_data_path = folder_data_path
+        self.detector_names, self.solenoid_names, self.corrector_names = get_typed_names(self.element_names)
+        yaml_save(
+            self.folder_data_path,  "reading_hyperparameters",
+            {"mean_steps": self.mean_steps, "read_every": read_every}
+        )
+        self.saver, self.parameters = self._initialize_saver(save_eps)
+        self.plot_app = PlotApp(element_names) if plot_figs else None
 
     def __enter__(self):
         return self
-
-    def _categorize_names(self):
-        detector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
-        solenoid_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
-        corrector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
-        return detector_names, solenoid_names, corrector_names
 
     def _load_limits(self, config_path):
         path = Path(config_path) / Path("device_config/device_limits.yaml")
@@ -97,19 +141,20 @@ class Device:
         limits.update(data["correctors"])
         return limits
 
-    def _initialize_saver(self):
-        mean_steps = 100
-        saver = Saver(self.path_to_save, self.save_history_limit, self.names)
-        parameters = self._get_mean_parameters(mean_steps)
+    def _initialize_saver(self, save_eps: float):
+        saver = FullDataSaver(self.folder_data_path, self.save_history_limit, self.element_names, save_eps)
+        parameters = self._get_mean_parameters(self.mean_steps)
         saver.append(parameters)
         return saver, parameters
 
     def _full_name(self, name: str):
-        if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start):
+        def _filter_name(prefixes: tuple[str]):
+            return re.sub(r"[0-9]", "", name).startswith(prefixes)
+        if _filter_name(self.CORRECTOR_PREFIXES):
             return f"MSC_{name}_IIN"
-        elif re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start):
+        elif _filter_name(self.SOLENOID_PREFIXES):
             return f"MSC_{name}_IIN"
-        elif re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start):
+        elif _filter_name(self.DETECTOR_PREFIXES):
             return f"BPMS1_{name}"
         else:
             assert False, f"Unidentified prefix in name: {name}"
@@ -127,28 +172,35 @@ class Device:
         else:
             warnings.warn(f"You are out for the device limits for {name}. You want to set value {value} but limits are {self.limits[name][0]} and {self.limits[name][1]}")
 
-    def _check_updates(self, old_values, new_values):
-        flag = False
-        for old_value, new_value in zip(old_values.values(), new_values.values()):
-            delta = abs(new_value - old_value) / (old_value + self.delimiter_eps)
-            if delta >= self.save_eps:
-                flag = True
-                return flag
-        return flag
+    def _wait_time(self):
+        delta_time = (self.current_time - time.time())
+        if delta_time < self.read_every:
+            time.sleep(self.read_every - delta_time)
+            self.current_time = time.time()
+
+    def read_parameters_set(self):
+        self._wait_time()
+        parameters = {name: self.read(name) for name in self.element_names}
+        while parameters == self.parameters:
+            time.sleep(self.read_every / 2)
+            parameters = {name: self.read(name) for name in self.element_names}
+        self.parameters = parameters
+        return self.parameters
 
     def _get_mean_parameters(self, steps: int):
-        total_values = {name: 0.0 for name in self.names}
+        total_values = {name: 0.0 for name in self.element_names}
         for _ in range(steps):
-            for name in self.names:
-                total_values[name] += self.read(name)
-        values = {name: total / steps for name, total in total_values.items()}
-        return values
+            new_parameters = self.read_parameters_set()
+            for name in self.element_names:
+                total_values[name] += new_parameters[name]
+        parameters = {name: total / steps for name, total in total_values.items()}
+        return parameters
 
-    def get_parameters(self, mean_steps: int = 100):
-        new_parameters = self._get_mean_parameters(mean_steps)
-        if self._check_updates(self.parameters , new_parameters):
-            self.parameters = new_parameters
-            self.saver.append(self.parameters)
+    def get_parameters(self):
+        new_parameters = self._get_mean_parameters(self.mean_steps)
+        self.saver.append(self.parameters)
+        if self.plot_app is not None:
+            self.plot_app.update(new_parameters)
         return new_parameters
 
     def get_detectors_mean_std(self, num_points: int = 10):
@@ -178,7 +230,7 @@ class DensityGetter:
         self.generator = self._get_generator(data_format, seed)
 
     def _get_density_parameters(self, config_path: tp.Union[str, Path]):
-        path = Path(config_path) / Path("agent_configs/densities/uniform_density.yaml")
+        path = Path(config_path) / "agent_configs/densities/uniform_density.yaml"
         with open(path, "r") as read_file:
             density_parameters = yaml.safe_load(read_file)
         return density_parameters
@@ -244,40 +296,42 @@ class BayessianModel(Model):
 
 
 class Agent:
-    correctors_prefix_start = ("MXY", "MQ")
-    solenoids_prefix_start = ("MS", )
-    detectors_prefix_start = ("BPM",)
-    def __init__(self, folder_data_path: tp.Union[str, Path], config_folder: tp.Union[str, Path], names: str, model: Model,
+    DETECTOR_PREFIXES = ("BPM",)
+    SOLENOID_PREFIXES = ("MS",)
+    CORRECTOR_PREFIXES = ("MXY", "MQ")
+    AGENT_CONFIG_FOLDER = "agent_configs"
+    DEVICE_CONFIG_FOLDER = "device_configs"
+    def __init__(self, folder_data_path: tp.Union[str, Path], config_folder: tp.Union[str, Path],
+                 element_names: str, model: Model,
                  device: Device):
         self.model = model
         self.density_generator = DensityGetter(config_folder, "torch", 42)
-        self.names = names
+        self.element_names = element_names
         self.folder_data_path = folder_data_path
 
         mean_std_path, derivative_steps_path, detector_noize_path = self._get_pathes(config_folder)
         self.mean_std = self._read_mean_std(mean_std_path)
         self._save_meta(folder_data_path, config_folder)
-        self.detector_names, self.solenoid_names, self.corrector_names = self._get_typed_names()
+        self.detector_names, self.solenoid_names, self.corrector_names = get_typed_names(self.element_names)
         self.device = device
         self.derivative_steps = self._get_derivative_steps(derivative_steps_path)
-        self.derivative_steps_norm = self._denormalize_std(self.derivative_steps)
+        self.derivative_steps_norm = self._normalize_values(self.derivative_steps, "denormalize_std")
         self.detector_noize_level = detector_noize_path
 
     def _get_pathes(self, config_path: tp.Union[str, Path]):
-        mean_std_path = Path(config_path) / Path("agent_configs/mean_std_turn_1.yaml")
-        derivative_steps_path = Path(config_path) / Path("agent_configs/derivative_steps.yaml")
-        detector_noize_level = Path(config_path) / Path("device_configs/detector_noize_level.yaml")
+        mean_std_path = Path(config_path) / "agent_configs/mean_std_turn_1.yaml"
+        derivative_steps_path = Path(config_path) / "agent_configs/derivative_steps.yaml"
+        detector_noize_level = Path(config_path) / "device_configs/detector_noize_level.yaml"
         return mean_std_path, derivative_steps_path, detector_noize_level
 
     def _save_meta(self, folder_path: tp.Union[str, Path], config_path: tp.Union[str, Path]):
-        timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-        updated_config_path = f"{timestamp}_config_folder"
+        #timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
+        updated_config_path = f"config_folder"
         updated_config_path = Path(folder_path) / Path(updated_config_path)
         shutil.copytree(config_path, updated_config_path)
 
         model_meta = self.model.metadata()
         yaml_save(folder_path, "model_meta", model_meta)
-
 
     def _read_noize_level(self, path: tp.Union[str, Path]):
         with open(path, 'r') as file:
@@ -290,39 +344,20 @@ class Agent:
             mean_std = {k: v for d in data.values() for k, v in d.items()}
         return mean_std
 
-    def _normalize(self, values: dict[str: float]):
-        norm_values = {}
-        for key in values:
-            mean_std = self.mean_std[key]
-            norm_values[key] = (values[key] - mean_std["mean"]) / mean_std["std"]
-        return norm_values
-
-    def _normalize_std(self, values: dict[str: float]):
-        norm_values = {}
-        for key in values:
-            mean_std = self.mean_std[key]
-            norm_values[key] = (values[key]) / mean_std["std"]
-        return norm_values
-
-    def _denormalize_std(self, values: dict[str: float]):
-        denorm_values = {}
-        for key in values:
-            mean_std = self.mean_std[key]
-            denorm_values[key] = mean_std["std"] * values[key]
-        return denorm_values
-
-    def _denormalize(self, values: dict[str: float]):
-        denorm_values = {}
-        for key in values:
-            mean_std = self.mean_std[key]
-            denorm_values[key] = mean_std["std"] * values[key] + mean_std["mean"]
-        return denorm_values
-
-    def _get_typed_names(self):
-        detector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.detectors_prefix_start)]
-        solenoid_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.solenoids_prefix_start)]
-        corrector_names = [name for name in self.names if re.sub(r"[0-9]", "", name).startswith(self.correctors_prefix_start)]
-        return detector_names, solenoid_names, corrector_names
+    def _normalize_values(self, values: dict, mode: str = "full") -> dict:
+        """Normalizes or de-normalizes values based on mean and std."""
+        result = {}
+        for key, value in values.items():
+            mean_std = self.mean_std.get(key, {"mean": 0, "std": 1})
+            if mode == "full":
+                result[key] = (value - mean_std["mean"]) / mean_std["std"]
+            elif mode == "std":
+                result[key] = value / mean_std["std"]
+            elif mode == "denormalize_std":
+                result[key] = value * mean_std["std"]
+            elif mode == "denormalize_full":
+                result[key] = value * mean_std["std"] + mean_std["mean"]
+        return result
 
     def _get_derivative_steps(self, path: tp.Union[str, Path]):
         with open(path, "r") as read_file:
@@ -339,6 +374,7 @@ class Agent:
         detectors_new = [parameters[detector] for detector in detector_names]
         parameters[solenoid] -= self.derivative_steps[solenoid]
         self.device.set(solenoid, parameters[solenoid])
+        print("---------------------------------------------------------")
 
         return detectors_old, detectors_new
 
@@ -375,7 +411,7 @@ class Agent:
                 {detector_names[i]: (detectors_new[i] - detectors_old[i]) / self.derivative_steps_norm[solenoid]
                  for i in range(len(detector_names))
                  }
-            derivatives[solenoid] = self._normalize_std(derivatives[solenoid])
+            derivatives[solenoid] = self._normalize_values(derivatives[solenoid], "std")
         return derivatives
 
     def measure_differences(self, detector_names: list[str], solenoid_names: list[str]):
@@ -397,13 +433,26 @@ class Agent:
         end_time = time.time()
         return out, end_time - start_time
 
-    def _save_differences_solenoids(self,
+    def _save_figures(self,
                                     subfolder: tp.Union[str,Path],
                                     increments: list[float],
                                     differences: dict[int, dict[str, tp.Any]],
                                     derivatives: dict[int, dict[str, tp.Any]],
                                     solenoid_steps: dict[int, dict[str, tp.Any]]
                                     ):
+
+        figure_subfolder = Path(subfolder) / "figures"
+        figure_subfolder.mkdir(mode=0o777, parents=False, exist_ok=True)
+
+        solenoids_vs_increments = Path(figure_subfolder) / "solenoids_vs_increments"
+        solenoids_vs_increments.mkdir(mode=0o777, parents=False, exist_ok=True)
+
+        differences = Path(figure_subfolder) / "differences"
+        differences.mkdir(mode=0o777, parents=False, exist_ok=True)
+
+        derivatives = Path(figure_subfolder) / "derivatives"
+        derivatives.mkdir(mode=0o777, parents=False, exist_ok=True)
+
         font = {'size': 6}
         matplotlib.rc('font', **font)
         solenoid_names = list(list(solenoid_steps.values())[0].keys())
@@ -417,23 +466,23 @@ class Agent:
                 axis.scatter(increments, steps)
                 axis.set_title(solenoid_names[i])
                 i += 1
-            path = Path(subfolder) / Path(f"solenoids_vs_increments_{plot_num}.png")
+            path = Path(figure_subfolder) / Path(f"solenoids_vs_increments_{plot_num}.png")
             fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
 
-        i = 0
-        for plot_num in range(2):
-            fig_solenoids, axes = plt.subplots(tot_subplots // 4, 2)
-            for axis in itertools.chain(*axes):
-                differences_detectors = [differences[increment][solenoid_names[i]] for increment in increments]
-                steps = [solenoid_steps[increment][solenoid_names[i]] for increment in increments]
-                for detector in self.detector_names:
+        for detector in self.detector_names:
+            i = 0
+            for plot_num in range(2):
+                fig_solenoids, axes = plt.subplots(tot_subplots // 4, 2)
+                for axis in itertools.chain(*axes):
+                    differences_detectors = [differences[increment][solenoid_names[i]] for increment in increments]
+                    steps = [solenoid_steps[increment][solenoid_names[i]] for increment in increments]
                     differences_detector = [data[detector] for data in differences_detectors]
                     axis.scatter(steps, differences_detector, label=detector)
-                axis.set_title(solenoid_names[i])
-                axis.legend()
-                i += 1
-            path = Path(subfolder) / Path(f"differences_vs_solenoids_{plot_num}.png")
-            fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
+                    axis.set_title(solenoid_names[i])
+                    axis.legend()
+                    i += 1
+                path = Path(figure_subfolder) / Path(f"differences_vs_solenoids_{detector}_{plot_num}.png")
+                fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
 
         i = 0
         for plot_num in range(2):
@@ -447,7 +496,7 @@ class Agent:
                 axis.set_title(solenoid_names[i])
                 axis.legend()
                 i += 1
-            path = Path(subfolder) / Path(f"derevatieves_vs_solenoids_{plot_num}.png")
+            path = Path(figure_subfolder) / Path(f"derevatieves_vs_solenoids_{plot_num}.png")
             fig_solenoids.savefig(path, pad_inches=0.0, dpi=200)
 
 
@@ -475,7 +524,7 @@ class Agent:
         meta["differences"] = differences
         meta["derivatives"] = derivatives
         meta["solenoid_steps"] = solenoid_steps
-        self._save_differences_solenoids(subfolder_path, increments, differences, derivatives, solenoid_steps)
+        self._save_figures(subfolder_path, increments, differences, derivatives, solenoid_steps)
         return meta, times
 
 
@@ -483,7 +532,7 @@ class Agent:
         meta = {}
         times = {}
 
-        subfolder_path = Path(self.folder_data_path) / Path(f"measured_meta_hyperparameters")
+        subfolder_path = Path(self.folder_data_path) / f"measured_meta_hyperparameters"
         subfolder_path.mkdir(mode=0o777, parents=False, exist_ok=True)
 
         detector_noize, timedel = self._measure_execution_time(self.measure_detectors_noize, 10)
@@ -531,16 +580,54 @@ def experement_1():
         agent.save_full_data("end")
         density = agent.density_generator.get_values(100)
         agent.measure_hyper_parameters()
-        print(density[0])
 
 
-def experement_2():
-    names = get_names("../analysis/names.json")["ordered_data"]
-    device = Device(names)
-    device.set("1MS1", 5.6)
+def measure_parameters():
+    config_path = "./configs/"
+    names = get_names("./configs/device_config/names.yaml")["ordered_data"]
+    folder_path = get_subfolder_path("./data")
+    with Device(folder_path, config_path, names, plot_figs=True) as device:
+        model = BayessianModel(names)
+        agent = Agent(folder_path, config_path, names, model, device)
+        agent.measure_detectors_noize()
+        agent.save_full_data("start")
+        agent.save_full_data("end")
+        _ = agent.density_generator.get_values(100)
+        agent.measure_hyper_parameters()
+        agent.save_full_data("end")
+
+def _get_parameters():
+    config_path = "./configs/"
+    names = get_names("./configs/device_config/names.yaml")["ordered_data"]
+    folder_path = get_subfolder_path("./data")
+    with Device(folder_path, config_path, names, plot_figs=True) as device:
+        time.sleep(4)
+        for i in range(100):
+            _ = device.get_parameters()
+
+def _mean_std():
+    config_path = "./configs/"
+    names = get_names("./configs/device_config/names.yaml")["ordered_data"]
+    folder_path = get_subfolder_path("./data")
+    with Device(folder_path, config_path, names, plot_figs=True) as device:
+        model = BayessianModel(names)
+        agent = Agent(folder_path, config_path, names, model, device)
+        time.sleep(10)
+        for i in range(20):
+            _ = device.get_parameters()
+            agent.measure_detectors_noize()
+
+def _hyper_parameters():
+    config_path = "./configs/"
+    names = get_names("./configs/device_config/names.yaml")["ordered_data"]
+    folder_path = get_subfolder_path("./data")
+    with Device(folder_path, config_path, names, plot_figs=True) as device:
+        model = BayessianModel(names)
+        agent = Agent(folder_path, config_path, names, model, device)
+        agent.measure_hyper_parameters()
 
 if __name__ == "__main__":
-    experement_1()
+    _hyper_parameters()
 
 
 
