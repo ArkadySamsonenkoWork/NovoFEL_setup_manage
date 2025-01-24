@@ -2,16 +2,20 @@ import itertools
 import shutil
 import time
 import typing as tp
+import warnings
 from pathlib import Path
 
+import numpy as np
 import yaml
-from altair.vega import legend
+# from altair.vega import legend
 from matplotlib import pyplot as plt
-import matplotlib
+import torch
 
 import models
 import devices
 import utils
+
+from manage.models import MultiOutputModel
 
 
 class ConfigPaths:
@@ -22,9 +26,10 @@ class ConfigPaths:
     def get_agent_paths(config_path: tp.Union[str, Path]):
         config_path = Path(config_path)
         return (
-            config_path / f"{ConfigPaths.AGENT_CONFIG_FOLDER}/mean_std_turn_1.yaml",
+            config_path / f"{ConfigPaths.AGENT_CONFIG_FOLDER}/mean_var_turn_1.yaml",
             config_path / f"{ConfigPaths.AGENT_CONFIG_FOLDER}/derivative_steps.yaml",
-            config_path / f"{ConfigPaths.DEVICE_CONFIG_FOLDER}/detector_noize_level.yaml",
+            config_path / f"{ConfigPaths.DEVICE_CONFIG_FOLDER}/detector_noize_var.yaml",
+            config_path / f"{ConfigPaths.AGENT_CONFIG_FOLDER}/correctors_bounds.yaml",
         )
 
 
@@ -103,19 +108,19 @@ class Normalizer:
         return result
 
 class DeviceMeasurer:
-    def __init__(self, element_names: list[str], device: devices.Device,
-                 folder: tp.Union[str, Path], mean_std_path: tp.Union[Path, str], derivative_steps: dict[float]):
+    def __init__(self, element_names: list[str], device: devices.LaserSetup,
+                 folder: tp.Union[str, Path], mean_var_path: tp.Union[Path, str], derivative_steps: dict[float]):
         self.device = device
         self.folder = folder
         self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
-        self.mean_std = DataHandler.read_yaml(mean_std_path)
-        self.normalizer = Normalizer(self.mean_std)
+        self.mean_var = DataHandler.read_yaml(mean_var_path)
+        self.normalizer = Normalizer(self.mean_var)
         self.derivative_steps = derivative_steps
 
     def measure_noize(self, times: int):
-        detectors_mean_std = self.device.get_detectors_mean_std(times)
-        DataHandler.save_yaml(self.folder, "detectors_mean_std", detectors_mean_std)
-        return {name: {"mean": data["mean"], "std": data["std"]} for name, data in detectors_mean_std.items()}
+        detectors_mean_var = self.device.get_detectors_mean_var(times)
+        DataHandler.save_yaml(self.folder, "detectors_mean_var", detectors_mean_var)
+        return {name: {"mean": data["mean"], "var": data["var"]} for name, data in detectors_mean_var.items()}
 
     def _get_param_diffs(self, solenoid):
         params = self.device.get_parameters()
@@ -169,6 +174,13 @@ class DeviceMeasurer:
         else:
             return self._measure_normalized_differences(solenoid_names) if normalized else self._measure_differences(solenoid_names)
 
+    def measure_parameters(self):
+        return self.device.get_parameters()
+
+    def set_parameters(self, parameters: dict[str, float]):
+        for name, parameter in parameters.items():
+            self.device.set(name, parameter)
+
     def measure_steps_dependance(self):
         increments = [0.2 * i for i in range(1, 8)]
         differences = {}
@@ -211,28 +223,117 @@ class DeviceMeasurer:
 
 class Agent:
     def __init__(self, folder_data_path: tp.Union[str, Path], config_folder: tp.Union[str, Path],
-                 element_names: str, model: models.Model, device: devices.Device):
-        self.model = model
+                 element_names: str, device: devices.LaserSetup):
         self.folder_data_path = Path(folder_data_path)
         self.element_names = element_names
         self.config_folder = Path(config_folder)
         self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
 
-        mean_std_path, derivative_steps_path, detector_noize_path = ConfigPaths.get_agent_paths(config_folder)
-        self.detector_noize_level = detector_noize_path
+        (mean_var_path, derivative_steps_path,
+         detector_noize_path, correctors_bounds_path) = ConfigPaths.get_agent_paths(config_folder)
+
+        self.detector_noize_var = DataHandler.read_yaml(detector_noize_path)
+        self.correctors_bounds = DataHandler.read_yaml(correctors_bounds_path)
 
         DataHandler.copy_config(config_folder, self.folder_data_path / "config_folder")
-        DataHandler.save_yaml(self.folder_data_path, "model_meta", self.model.metadata())
         derivative_steps = DataHandler.read_yaml(derivative_steps_path)
-        self.measurer = DeviceMeasurer(element_names, device, folder_data_path, mean_std_path, derivative_steps)
+        self.measurer = DeviceMeasurer(element_names, device, folder_data_path, mean_var_path, derivative_steps)
+        self.init_corrector_values(["1MXY1_Y"])
+
+    def _generate_x_init_points(self, bounds:list):
+        bounds = [[mn / 2, mx / 2] for mn, mx in bounds] # give
+        center = [(mn + mx) / 2 for mn, mx in bounds]
+        corners = itertools.product(*bounds)
+        points = [list(corner) for corner in corners]
+        return [center] + points
+
+    def _set_and_get_parameters(self, update_parameters):
+        self.measurer.set_parameters(update_parameters)
+        new_parameters = self.measurer.measure_parameters()
+        update_values = list(update_parameters.values())
+        updated_values = [new_parameters[name] for name in update_parameters.keys()]
+        if not np.allclose(update_values, updated_values, atol=1e-03):
+            warnings.warn(f"old correctors and new_correctors values are not equal. The old values are {update_values}"
+                                    f"the new values are {updated_values}")
+        return new_parameters
+
+    def _get_stack_points(self, parameters_stack):
+        Y = []
+        for update_parameters in parameters_stack:
+            parameters = self._set_and_get_parameters(update_parameters)
+            detectors = {name: parameters[name] for name in self.detector_names}
+            Y.append(list(detectors.values()))
+        return Y
+
+    def init_corrector_values(self, correctors_name: list[str]):
+        dtype = torch.float64
+        Yvar = torch.tensor(list(self.detector_noize_var.values()), dtype=dtype)
+        bounds = [
+            [self.correctors_bounds[name]["min"],  self.correctors_bounds[name]["max"]]
+                  for name in correctors_name
+        ]
+        bounds_t = torch.tensor(bounds, dtype=dtype).transpose(0, 1)
+
+        parameters = self.measurer.measure_parameters()
+        correctors = {name: parameters[name] for name in correctors_name}
+        detectors = {name: parameters[name] for name in self.detector_names}
+
+        x = list(correctors.values())
+        y = list(detectors.values())
+        _init_points = self._generate_x_init_points(bounds)
+        parameters_stack = [{name: value for name, value in zip(correctors_name, _init_point)}
+                            for _init_point in _init_points]
+
+        X = torch.tensor([x] + _init_points, dtype=dtype)
+        stack_points = self._get_stack_points(parameters_stack)
+        Y = torch.tensor([y] + stack_points, dtype=dtype)
+        gp_model = models.MultiListModel(train_X=X, train_Y=Y, Yvar=Yvar, bounds=bounds_t,
+                                         weights=torch.tensor([1, 1, 0])
+                                         )
+        DataHandler.save_yaml(self.folder_data_path, "model_meta", gp_model.__repr__())
+        gp_model, X_stat, Y_stat =\
+            self.optimize_corrector_values(correctors_name, gp_model, bounds=bounds_t, steps=10)
+        X_stat = [x] + _init_points + X_stat
+        Y_stat = [y] + stack_points + Y_stat
+        best_X = gp_model.best_X.tolist()
+        if best_X != X_stat[-1]:
+            parameters_stack = [{name: value for name, value in zip(correctors_name, X)} for X in [best_X]]
+            new_Y = self._get_stack_points(parameters_stack)
+        Y_stat += new_Y
+        X_stat.append(best_X)
+
+    def optimize_corrector_values(self, correctors_name: list[str],
+                                  gp_model: MultiOutputModel, bounds, steps: int = 12):
+        gp_model.train()
+        retrain = 2
+        alphas = [i / 10 for i in range(steps-2)] + [1.0] * 2
+        X_stat = []
+        Y_stat = []
+        for step, alpha in enumerate(alphas):
+            if step % retrain == 0:
+                gp_model.train()
+            new_X = gp_model.get_new_candidate_point(bounds=bounds, alpha=alpha).tolist()
+            X_stat += new_X
+            parameters_stack = [{name: value for name, value in zip(correctors_name, X)} for X in new_X]
+            new_Y = self._get_stack_points(parameters_stack)
+            Y_stat += new_Y
+            X = torch.tensor(new_X)
+            Y = torch.tensor(new_Y)
+            gp_model.add_training_points(X, Y)
+        return gp_model, X_stat, Y_stat
+
+    def measure_noize(self):
+        subfolder_path = self.folder_data_path / "measurements_noize"
+        subfolder_path.mkdir(parents=True, exist_ok=True)
+        noize = self.measurer.measure_noize(times=20)
+        self.save_measurements(subfolder_path, "noize", noize)
 
     def measure_hyperparameters(self):
         subfolder_path = self.folder_data_path / "measurements_hyperparameters"
         subfolder_path.mkdir(parents=True, exist_ok=True)
         increments, steps, differences, derivatives = self.measurer.measure_steps_dependance()
         noize = self.measurer.measure_noize(times=20)
-
-        full_data = self.measurer.measure_full_data(measure_time=True)
+        full_data = self.measurer.measure_full_data(include_timing=True)
         meta = {"full_data": full_data, "noize": noize,
                 "increments": {"increments": increments},
                 "steps": steps, "differences": differences, "derivatives": derivatives}
