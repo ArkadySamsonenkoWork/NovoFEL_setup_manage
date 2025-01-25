@@ -62,8 +62,8 @@ def _hyper_parameters():
     with devices.LaserSetup(folder_path, config_path, names, plot_figs=False, read_every=0.2) as las_setup:
         agent = agents.Agent(folder_path, config_path, names, las_setup)
         correctors = ["1MXY1_Y", "1MXY1_X"]
-        #agent.characterize_system_parameters()
-        agent.optimize_corrector_values(correctors)
+        agent.characterize_system_parameters()
+        #agent.optimize_corrector_values(correctors, normalized=False)
 
 if __name__ == "__main__":
     _hyper_parameters()

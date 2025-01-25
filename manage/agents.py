@@ -93,6 +93,7 @@ class Plotter:
 class Normalizer:
     def __init__(self, mean_var: dict):
         self.mean_var = mean_var
+        self.mean_var = {k: v for data in list(self.mean_var.values()) for k, v in data.items()}
 
     def normalize(self, values: dict, mode: str = "full") -> dict:
         result = {}
@@ -108,6 +109,16 @@ class Normalizer:
                 result[key] = value * stats["var"] ** 0.5 + stats["mean"]
         return result
 
+    def normalize_squares(self, values: dict, mode: str = "full") -> dict:
+        result = {}
+        for key, value in values.items():
+            stats = self.mean_var.get(key, {"mean": 0, "var": 1})
+            if mode == "var":
+                result[key] = value / stats["var"]
+            elif mode == "denormalize_var":
+                result[key] = value * stats["var"]
+        return result
+
 
 ParameterDict = dict[str, float]
 DerivativeSteps = dict[str, float]
@@ -116,13 +127,12 @@ class DeviceMeasurer:
     """Measures and analyzes device parameters, noise, and system responses for a laser setup."""
 
     def __init__(self, element_names: list[str], device: devices.LaserSetup,
-                 folder: tp.Union[str, Path], mean_var_path: tp.Union[Path, str], derivative_steps: dict[float]):
+                 folder: tp.Union[str, Path], normalizer: Normalizer, derivative_steps: dict[float]):
         self.element_names = element_names
         self.device = device
         self.folder = folder
         self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
-        self.mean_var = DataHandler.read_yaml(mean_var_path)
-        self.normalizer = Normalizer(self.mean_var)
+        self.normalizer = normalizer
         self.derivative_steps = derivative_steps
 
     def measure_noise(self, times: int):
@@ -197,7 +207,7 @@ class DeviceMeasurer:
         Returns:
             Dictionary of normalized values with same structure as input
         """
-        return {key: self.normalizer.normalize(values, mode=normalization_mode) for key, values in data.items()}
+        return self.normalizer.normalize(data, mode=normalization_mode)
 
     def measure_shifts(
         self, solenoid_names: list[str], calculate_derivative: bool = True, normalized: bool = False
@@ -215,10 +225,12 @@ class DeviceMeasurer:
             - Detector readings (normalized if requested)
             - Calculated changes/derivatives (normalized if requested)
         """
-        controlled_parameters, detector_readings, reading_changes = self._calculate_parameter_changes(solenoid_names, calculate_derivative)
+        controlled_parameters, detector_readings, reading_changes =\
+            self._calculate_parameter_changes(solenoid_names, calculate_derivative)
 
         if normalized:
             detector_readings = self._normalize_data(detector_readings, "full")
+            controlled_parameters = self._normalize_data(controlled_parameters, "full")
             reading_changes = self._normalize_data(reading_changes, "std")
 
         return controlled_parameters, detector_readings, reading_changes
@@ -272,11 +284,7 @@ class DeviceMeasurer:
         result = func(*args, **kwargs)
         return result, time.time() - start_time
 
-    def get_current_parameters(self) -> ParameterDict:
-        """Retrieves current device parameters."""
-        return self.device.get_parameters()
-
-    def get_parameters(self, normalize: bool = False) -> tuple[ParameterDict, ParameterDict]:
+    def get_current_parameters(self, normalize: bool = False) -> ParameterDict:
         """Retrieves and categorizes current device parameters.
 
         Args:
@@ -287,38 +295,39 @@ class DeviceMeasurer:
             - Controlled parameters (solenoids/correctors)
             - Detector readings (normalized if requested)
         """
-        params = self.get_current_parameters()
-        controlled = {name: params[name] for name in self.element_names if name not in self.detector_names}
-        detectors = {name: params[name] for name in self.detector_names}
-        return controlled, self._normalize_data(detectors) if normalize else detectors
+        params = self.device.get_parameters()
+        #controlled = {name: params[name] for name in self.element_names if name not in self.detector_names}
+        #detectors = {name: params[name] for name in self.detector_names}
+        return self._normalize_data(params) if normalize else params
 
-    def set_parameters(self, new_parameters: ParameterDict) -> None:
+
+    def set_parameters(self, new_parameters: ParameterDict, denormalized: bool =False) -> None:
         """Updates device parameters to specified values.
 
         Args:
             new_parameters: Dictionary of parameter_name: value pairs.
+            denormalized: Should denormalize data to set.
         """
+        if not denormalized:
+            new_parameters = self.normalizer.normalize(new_parameters, mode="denormalize_full")
         for param_name, value in new_parameters.items():
             self.device.set(param_name, value)
 
-class Agent:
-    def __init__(self, folder_data_path: tp.Union[str, Path], config_folder: tp.Union[str, Path],
-                 element_names: str, device: devices.LaserSetup):
-        self.folder_data_path = Path(folder_data_path)
-        self.element_names = element_names
-        self.config_folder = Path(config_folder)
-        self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
-
-        (mean_var_path, derivative_steps_path,
-         detector_noise_path, correctors_bounds_path) = ConfigPaths.get_agent_paths(config_folder)
-
-        self.detector_noise_var = DataHandler.read_yaml(detector_noise_path)
-        self.correctors_bounds = DataHandler.read_yaml(correctors_bounds_path)
-
-        DataHandler.copy_config(config_folder, self.folder_data_path / "config_folder")
-        derivative_steps = DataHandler.read_yaml(derivative_steps_path)
-        self.measurer = DeviceMeasurer(element_names, device, folder_data_path, mean_var_path, derivative_steps)
+class OptimizerParameters:
+    def __init__(self, detector_names: list[str], detector_noise_var,
+                 normalized: bool, folder_data_path: Path | str, correctors_bounds,
+                 measurer: DeviceMeasurer,
+                 normalizer: Normalizer):
+        self.detector_names = detector_names
+        self.measurer = measurer
+        self.normalized = normalized
+        self.normalizer = normalizer
+        self.folder_data_path = folder_data_path
         self._current_optimization_stage = 0
+        self.correctors_bounds = correctors_bounds
+        self.detector_noise_var = detector_noise_var
+        if normalized:
+            self.detector_noise_var = self.normalizer.normalize_squares(self.detector_noise_var, mode="var")
 
     def _generate_initial_points(self, bounds: list[list[float]]) -> list[list[float]]:
         """Generate initial sampling points (center + corner points) for given bounds."""
@@ -341,21 +350,21 @@ class Agent:
         readings = []
         for params in parameter_sets:
             self.measurer.set_parameters(params)
-            current_params = self.measurer.get_current_parameters()
+            current_params = self.measurer.get_current_parameters(normalize=self.normalized)
             self._verify_parameter_update(current_params, params)
             readings.append([current_params[name] for name in self.detector_names])
         return readings
 
     def _get_start_state(self, correctors: list[str]) -> tuple[dict, dict]:
-        parameters = self.measurer.get_current_parameters()
+        parameters = self.measurer.get_current_parameters(normalize=self.normalized)
         begin_point = [parameters[name] for name in correctors]
         begin_readings = [parameters[name] for name in self.detector_names]
         return begin_point, begin_readings
 
     def _get_final_values(self, gp_model: MultiOutputModel,
-                                   correctors: list[str],
-                                   points: list[list[float]],
-                                   readings: list[list[float]]):
+                          correctors: list[str],
+                          points: list[list[float]],
+                          readings: list[list[float]]):
         best_X = gp_model.best_X.tolist()
         if best_X != points[-1]:
             parameter_sets = [{name: value for name, value in zip(correctors, X)} for X in [best_X]]
@@ -365,13 +374,30 @@ class Agent:
         return points, readings
 
     def _translate_to_metadata(self, gp_model: MultiOutputModel,
-                                   correctors: list[str],
-                                   points: list[list[float]],
-                                   readings: list[list[float]]):
-        named_points = [{name: value for name, value in zip(correctors, X)} for X in points]
-        named_readings = [{name: value for name, value in zip(self.detector_names, X)} for X in readings]
+                               correctors: list[str],
+                               points: list[list[float]],
+                               readings: list[list[float]]):
+        if self.normalized:
+            named_points = [
+                self.normalizer.normalize({name: value for name, value in zip(correctors, X)}, mode="denormalize_full")
+                for X in points]
+            named_readings = [
+                self.normalizer.normalize({name: value for name, value in zip(self.detector_names, X)}, mode="denormalize_full")
+                for X in readings]
+            Yvar = self.normalizer.normalize_squares(self.detector_noise_var, mode="denormalize_var")
+        else:
+            named_points = [
+                {name: value for name, value in zip(correctors, X)}
+                for X in points]
+            named_readings = [
+                {name: value for name, value in zip(self.detector_names, X)}
+                for X in points]
+            Yvar = self.detector_noise_var
         meta_data = {
-            "optimized_correctors": named_points, "detectors_values": named_readings, "model": gp_model.__repr__()
+            "optimized_correctors": named_points, "detectors_values": named_readings,
+            "detector_noise_var": Yvar,
+            "is used normalization": self.normalized,
+            "model": gp_model.__repr__()
         }
         return meta_data
 
@@ -387,14 +413,16 @@ class Agent:
 
         DataHandler.save_yaml(subfolder_path, f"stage_{self._current_optimization_stage}", meta_data)
 
-    def optimize_corrector_values(self, correctors: list[str], normalized: bool = False) -> None:
+    def optimize_corrector_values(self, correctors: list[str]) -> None:
         """Initialize optimal corrector values using Gaussian Process optimization."""
         start_timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-
-        bounds = [
-            [self.correctors_bounds[name]["min"], self.correctors_bounds[name]["max"]]
-            for name in correctors
-        ]
+        mins = {name: self.correctors_bounds[name]["min"] for name in correctors}
+        maxes = {name: self.correctors_bounds[name]["max"] for name in correctors}
+        if self.normalized:
+            mins = self.normalizer.normalize(mins, mode="full")
+            maxes = self.normalizer.normalize(maxes, mode="full")
+        bounds = [[mins[name], maxes[name]] for name in correctors]
+        print(bounds)
         begin_point, begin_reading = self._get_start_state(correctors)
 
         points = self._generate_initial_points([[mn / 2, mx / 2] for mn, mx in bounds])
@@ -410,7 +438,7 @@ class Agent:
 
         points = points + new_points
         detector_readings = detector_readings + new_readings
-        points, detector_readings =\
+        points, detector_readings = \
             self._get_final_values(optimized_model, correctors, points, detector_readings)
         self._current_optimization_stage += 1
 
@@ -422,20 +450,20 @@ class Agent:
                          detector_readings: list[list[float]],
                          bounds: list[list[float]]) -> MultiOutputModel:
         """Create and configure Gaussian Process model."""
-        Y_var = torch.tensor(list(self.detector_noise_var.values()), dtype=torch.float64)
+        Yvar = torch.tensor(list(self.detector_noise_var.values()), dtype=torch.float64)
         bounds_tensor = torch.tensor(bounds, dtype=torch.float64).T
 
         return models.MultiListModel(
             train_X=torch.tensor(initial_points, dtype=torch.float64),
             train_Y=torch.tensor(detector_readings, dtype=torch.float64),
-            Yvar=Y_var,
+            Yvar=Yvar,
             bounds=bounds_tensor,
             weights=torch.tensor([1, 1, 0])
         )
 
     def _iterate_corrector_values(self, model: MultiOutputModel,
-                                   correctors: list[str],
-                                   bounds: list[list[float]]) ->tuple[
+                                  correctors: list[str],
+                                  bounds: list[list[float]]) -> tuple[
         MultiOutputModel, list[list[float]], list[list[float]]
     ]:
         """Run Bayesian optimization loop to find optimal corrector values."""
@@ -468,6 +496,37 @@ class Agent:
             points += new_point_lst
             readings += new_reading
         return model, points, readings
+
+
+class Agent:
+    def __init__(self, folder_data_path: tp.Union[str, Path], config_folder: tp.Union[str, Path],
+                 element_names: str, device: devices.LaserSetup):
+        self.folder_data_path = Path(folder_data_path)
+        self.element_names = element_names
+        self.config_folder = Path(config_folder)
+        self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
+
+        (mean_var_path, derivative_steps_path,
+         detector_noise_path, correctors_bounds_path) = ConfigPaths.get_agent_paths(config_folder)
+
+        self.detector_noise_var = DataHandler.read_yaml(detector_noise_path)
+        self.correctors_bounds = DataHandler.read_yaml(correctors_bounds_path)
+
+        DataHandler.copy_config(config_folder, self.folder_data_path / "config_folder")
+        derivative_steps = DataHandler.read_yaml(derivative_steps_path)
+
+        self.normalizer = Normalizer(DataHandler.read_yaml(mean_var_path))
+        self.measurer = DeviceMeasurer(element_names, device, folder_data_path, self.normalizer, derivative_steps)
+        self._current_optimization_stage = 0
+
+    def optimize_corrector_values(self, correctors: list[str], normalized: bool = False) -> None:
+        """Initialize optimal corrector values using Gaussian Process optimization."""
+        optimizer = OptimizerParameters(detector_names=self.detector_names,
+                                        normalized=normalized, measurer=self.measurer, normalizer=self.normalizer,
+                                        folder_data_path=self.folder_data_path,
+                                        detector_noise_var=self.detector_noise_var,
+                                        correctors_bounds=self.correctors_bounds)
+        optimizer.optimize_corrector_values(correctors)
 
     def measure_noise_characteristics(self) -> None:
         """Measure and save detector noise characteristics."""

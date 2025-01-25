@@ -236,7 +236,7 @@ class KroneckerModel(MultiOutputModel):
 
     def __repr__(self):
         return (f"MultiListModel with the next parameters: "
-                f"Yvar: {self.Yvar}, dtype: {self.dtype} \n"
+                f"Yvar: {self.Yvar}, dtype: {self.dtype} \n  "
                 f"enforce_positive_outputs: {self.enforce_positive_outputs}")
 
     @property
