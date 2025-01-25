@@ -1,5 +1,6 @@
 import csv
 import re
+import os
 import time
 import typing as tp
 import warnings
@@ -8,11 +9,12 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-# from epics import PV
+#from epics import PV
 from Servers.Server import PV
 from plot_app import PlotApp
 import utils
 
+#os.environ['EPICS_CA_ADDR_LIST'] = '192.168.3.92'
 
 def save_start_time(folder_data_path: tp.Union[str, Path]):
     timestamp = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
@@ -78,7 +80,7 @@ class DataSaver:
         self.save()
         self.file.close()
 
-class Device:
+class LaserSetup:
     DETECTOR_PREFIXES = ("BPM",)
     SOLENOID_PREFIXES = ("MS",)
     CORRECTOR_PREFIXES = ("MXY", "MQ")
@@ -118,7 +120,7 @@ class Device:
 
 
     def _load_limits(self, config_path):
-        path = Path(config_path) / Path("device_config/device_limits.yaml")
+        path = Path(config_path) / Path("device_configs/device_limits.yaml")
         limits = {}
         with open(path, "r") as read_file:
             data = yaml.safe_load(read_file)
@@ -176,18 +178,18 @@ class Device:
             self.plot_app.update(new_parameters)
         return new_parameters
 
-    def get_detectors_mean_std(self, num_points: int = 10):
+    def get_detectors_mean_var(self, num_points: int = 10):
         detectors_data = np.zeros((num_points, len(self.detector_names)))
         for step in range(num_points):
             parameters = self.get_parameters()
             for i, name in enumerate(self.detector_names):
                 detectors_data[step, i] = parameters[name]
         detectors_mean = np.mean(detectors_data, axis=0)
-        detectors_std = np.std(detectors_data, axis=0)
-        mean_std =\
-            {self.detector_names[i]: {"mean": detectors_mean[i].item(), "std": detectors_std[i].item()}
+        detectors_var = np.var(detectors_data, axis=0, ddof=1)
+        mean_var =\
+            {self.detector_names[i]: {"mean": detectors_mean[i].item(), "var": detectors_var[i].item()}
              for i in range(len(self.detector_names))}
-        return mean_std
+        return mean_var
 
     def run_continuous_reading(self):
         while True:
