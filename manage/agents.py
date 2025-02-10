@@ -135,9 +135,8 @@ class DeviceMeasurer:
         self.normalizer = normalizer
         self.derivative_steps = derivative_steps
 
-    def measure_noise(self, times: int):
+    def measure_mean_var(self, times: int):
         detectors_mean_var = self.device.get_detectors_mean_var(times)
-        DataHandler.save_yaml(self.folder, "detectors_mean_var", detectors_mean_var)
         return {name: {"mean": data["mean"], "var": data["var"]} for name, data in detectors_mean_var.items()}
 
     def _perturb_solenoid_and_measure(self, solenoid_name: str) -> tuple[ParameterDict, list[float], list[float]]:
@@ -366,6 +365,9 @@ class OptimizerParameters:
                           points: list[list[float]],
                           readings: list[list[float]]):
         best_X = gp_model.best_X.tolist()
+
+        print(best_X)
+        print(points[-1])
         if best_X != points[-1]:
             parameter_sets = [{name: value for name, value in zip(correctors, X)} for X in [best_X]]
             new_reading = self._collect_detector_readings(parameter_sets)
@@ -422,7 +424,6 @@ class OptimizerParameters:
             mins = self.normalizer.normalize(mins, mode="full")
             maxes = self.normalizer.normalize(maxes, mode="full")
         bounds = [[mins[name], maxes[name]] for name in correctors]
-        print(bounds)
         begin_point, begin_reading = self._get_start_state(correctors)
 
         points = self._generate_initial_points([[mn / 2, mx / 2] for mn, mx in bounds])
@@ -467,9 +468,9 @@ class OptimizerParameters:
         MultiOutputModel, list[list[float]], list[list[float]]
     ]:
         """Run Bayesian optimization loop to find optimal corrector values."""
-        optimization_steps = 12
+        optimization_steps = 30
         retrain_interval = 2
-        exploration_factors = [i / 10 for i in range(optimization_steps - 2)] + [1.0] * 2
+        exploration_factors = [i / 10 for i in range(optimization_steps - 2)] + [1.0] * 4
         bounds_t = torch.tensor(bounds).T
         points = []
         readings = []
@@ -528,26 +529,18 @@ class Agent:
                                         correctors_bounds=self.correctors_bounds)
         optimizer.optimize_corrector_values(correctors)
 
-    def measure_noise_characteristics(self) -> None:
-        """Measure and save detector noise characteristics."""
-        measurement_folder = self.folder_data_path / "noise_measurements"
-        measurement_folder.mkdir(parents=True, exist_ok=True)
-
-        noise_data = self.measurer.measure_noise(times=20)
-        DataHandler.save_yaml(measurement_folder, "noise_statistics", noise_data)
-
     def characterize_system_parameters(self) -> None:
         """Full system characterization including step response and timing."""
         results_folder = self.folder_data_path / "system_characterization"
         results_folder.mkdir(parents=True, exist_ok=True)
 
         step_response = self.measurer.measure_step_response()
-        noise_data = self.measurer.measure_noise(times=20)
+        detectors_mean_var = self.measurer.measure_mean_var(times=20)
         full_system_data = self.measurer.measure_full_system_state()
 
         characterization_data = {
             "step_response": step_response,
-            "noise_characteristics": noise_data,
+            "detectors_mean_var": detectors_mean_var,
             "full_system_state": full_system_data
         }
 
@@ -555,6 +548,20 @@ class Agent:
             DataHandler.save_yaml(results_folder, name, data)
 
         self._generate_characterization_plots(results_folder, **step_response)
+
+    def characterize_noize(self) -> None:
+        """Full system characterization including step response and timing."""
+        results_folder = self.folder_data_path / "system_noize"
+        results_folder.mkdir(parents=True, exist_ok=True)
+
+        detectors_mean_var = self.measurer.measure_mean_var(times=20)
+
+        characterization_data = {
+            "detectors_mean_var": detectors_mean_var,
+        }
+
+        for name, data in characterization_data.items():
+            DataHandler.save_yaml(results_folder, name, data)
 
     def _generate_characterization_plots(self, subfolder: Path, increments: list[float], steps: dict,
                           differences: dict, derivatives: dict):

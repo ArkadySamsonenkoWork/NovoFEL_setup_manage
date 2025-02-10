@@ -59,11 +59,22 @@ def _hyper_parameters():
     config_path = "./configs/"
     names = utils.get_names("configs/device_configs/names.yaml")["ordered_data"]
     folder_path = utils.get_subfolder_path("./data")
-    with devices.LaserSetup(folder_path, config_path, names, plot_figs=False, read_every=0.2) as las_setup:
+    with devices.LaserSetup(folder_path, config_path, names, plot_figs=True, read_every=0.2) as las_setup:
         agent = agents.Agent(folder_path, config_path, names, las_setup)
-        correctors = ["1MXY1_Y", "1MXY1_X"]
+        correctors = ["1MXY1_X", "1MXY1_Y", "1MXY2_X", "1MXY2_Y"]
         agent.characterize_system_parameters()
-        #agent.optimize_corrector_values(correctors, normalized=False)
+        #agent.optimize_corrector_values(correctors, normalized=True)
+
+
+def noize():
+    config_path = "./configs/"
+    names = utils.get_names("configs/device_configs/names.yaml")["ordered_data"]
+    folder_path = utils.get_subfolder_path("./data")
+    with devices.LaserSetup(folder_path, config_path, names, plot_figs=True, read_every=0.2) as las_setup:
+        agent = agents.Agent(folder_path, config_path, names, las_setup)
+        correctors = ["1MXY1_X", "1MXY1_Y", "1MXY2_X", "1MXY2_Y"]
+        agent.characterize_system_parameters()
+        #agent.optimize_corrector_values(correctors, normalized=True)
 
 if __name__ == "__main__":
     _hyper_parameters()
