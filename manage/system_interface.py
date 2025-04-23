@@ -9,7 +9,7 @@ class Normalizer:
         self.mean_var = mean_var
         self.mean_var = {k: v for data in list(self.mean_var.values()) for k, v in data.items()}
 
-    def normalize(self, values: dict, mode: str = "full") -> dict:
+    def normalize_parameters(self, values: dict, mode: str = "full") -> dict:
         result = {}
         for key, value in values.items():
             stats = self.mean_var.get(key, {"mean": 0, "var": 1})
@@ -49,9 +49,8 @@ class Normalizer:
 ParameterDict = dict[str, float]
 DerivativeSteps = dict[str, float]
 
-class DeviceMeasurer:
-    """Measures and analyzes device parameters, noise, and system responses for a laser setup."""
 
+class DeviceMeasurer:
     def __init__(self, element_names: list[str], device: devices.LaserSetup,
                  folder: tp.Union[str, Path], normalizer: Normalizer, derivative_steps: dict[float]):
         self.element_names = element_names
@@ -61,33 +60,31 @@ class DeviceMeasurer:
         self.normalizer = normalizer
         self.derivative_steps = derivative_steps
 
-    def measure_mean_var(self, times: int):
-        detectors_mean_var = self.device.get_detectors_mean_var(times)
-        return {name: {"mean": data["mean"], "var": data["var"]} for name, data in detectors_mean_var.items()}
-
-    def _perturb_solenoid_and_measure(self, solenoid_name: str) -> tuple[ParameterDict, list[float], list[float]]:
-        """Applies a step change to a solenoid and measures detector responses.
-
+    def _normalize_data(
+            self, data: dict[str, dict[str, float]], normalization_mode: str = "full"
+    ) -> dict[str, dict[str, float]]:
+        """Applies normalization to measurement data.
         Args:
-            solenoid_name: Solenoid to perturb.
-
+            data: Raw values to normalize, keyed by element name
+            normalization_mode: Normalization strategy ('std' or 'full')
         Returns:
-            Tuple containing:
-            - Original device parameters before perturbation
-            - Original detector readings
-            - Detector readings after solenoid perturbation
+            Dictionary of normalized values with same structure as input
         """
-        original_parameters = self.device.get_parameters()
-        original_detector_readings = [original_parameters[detector] for detector in self.detector_names]
+        return self.normalizer.normalize_parameters(data, mode=normalization_mode)
 
-        step_size = self.derivative_steps[solenoid_name]
-        perturbed_value = original_parameters[solenoid_name] + step_size
-        self.device.set(solenoid_name, perturbed_value)
-        perturbed_detector_readings = [self.device.get_parameters()[detector] for detector in self.detector_names]
-
-        self.device.set(solenoid_name, original_parameters[solenoid_name])
-
-        return original_parameters, original_detector_readings, perturbed_detector_readings
+    def _normalize_shift(
+            self, data: dict[str, dict[str, float]], normalization_mode: str = "full"
+    ) -> dict[str, dict[str, float]]:
+        """Applies normalization to measurement data.
+        Args:
+            data: Raw values to normalize, keyed by element name
+            normalization_mode: Normalization strategy ('std' or 'full')
+        Returns:
+            Dictionary of normalized values with same structure as input
+        """
+        for key in data:
+            data[key] = self.normalizer.normalize_shift(data[key], mode=normalization_mode)
+        return data
 
     def _calculate_parameter_changes(
             self, solenoid_names: list[str], calculate_derivative: bool
@@ -120,33 +117,26 @@ class DeviceMeasurer:
 
         return controlled_parameters, detector_readings, reading_changes
 
-    def _normalize_data(
-            self, data: dict[str, dict[str, float]], normalization_mode: str = "full"
-    ) -> dict[str, dict[str, float]]:
-        """Applies normalization to measurement data.
-
+    def _perturb_solenoid_and_measure(self, solenoid_name: str) -> tuple[ParameterDict, list[float], list[float]]:
+        """Applies a step change to a solenoid and measures detector responses.
         Args:
-            data: Raw values to normalize, keyed by element name
-            normalization_mode: Normalization strategy ('std' or 'full')
-
+            solenoid_name: Solenoid to perturb.
         Returns:
-            Dictionary of normalized values with same structure as input
+            Tuple containing:
+            - Original device parameters before perturbation
+            - Original detector readings
+            - Detector readings after solenoid perturbation
         """
-        return self.normalizer.normalize(data, mode=normalization_mode)
+        original_parameters = self.device.get_parameters()
+        original_detector_readings = [original_parameters[detector] for detector in self.detector_names]
 
-    def _normalize_shift(
-            self, data: dict[str, dict[str, float]], normalization_mode: str = "full"
-    ) -> dict[str, dict[str, float]]:
-        """Applies normalization to measurement data.
-        Args:
-            data: Raw values to normalize, keyed by element name
-            normalization_mode: Normalization strategy ('std' or 'full')
-        Returns:
-            Dictionary of normalized values with same structure as input
-        """
-        for key in data:
-            data[key] = self.normalizer.normalize_shift(data[key], mode=normalization_mode)
-        return data
+        step_size = self.derivative_steps[solenoid_name]
+        perturbed_value = original_parameters[solenoid_name] + step_size
+        self.device.set(solenoid_name, perturbed_value)
+        perturbed_detector_readings = [self.device.get_parameters()[detector] for detector in self.detector_names]
+
+        self.device.set(solenoid_name, original_parameters[solenoid_name])
+        return original_parameters, original_detector_readings, perturbed_detector_readings
 
     def measure_shifts(
         self, solenoid_names: list[str], calculate_derivative: bool = True, normalized: bool = False
@@ -157,7 +147,6 @@ class DeviceMeasurer:
             solenoid_names: Solenoids to evaluate
             calculate_derivative: Return derivatives (True) or absolute differences (False)
             normalized: Apply normalization to results (True)
-
         Returns:
             Tuple containing:
             - Controlled parameter values
@@ -173,30 +162,67 @@ class DeviceMeasurer:
             reading_changes = self._normalize_shift(reading_changes, "std")
         return controlled_parameters, detector_readings, reading_changes
 
+    def measure_parameters(self, normalized: bool = False) -> tuple[ParameterDict, ParameterDict]:
+        """Retrieves and categorizes current device parameters.
+        Args:
+            normalized: Apply normalization to detector readings
+        Returns:
+            Tuple containing:
+            - Controlled parameters (solenoids/correctors)
+            - Detector readings (normalized if requested)
+        """
+        params = self.device.get_parameters()
+        params = self._normalize_data(params) if normalized else params
+        controlled = {name: params[name] for name in self.element_names if name not in self.detector_names}
+        detectors = {name: params[name] for name in self.detector_names}
+        return controlled, detectors
+
+    def set_parameters(self, new_parameters: ParameterDict, denormalized: bool=False) -> None:
+        """Updates device parameters to specified values.
+
+        Args:
+            new_parameters: Dictionary of parameter_name: value pairs.
+            denormalized: Should denormalize data to set.
+        """
+        if not denormalized:
+            new_parameters = self.normalizer.normalize_parameters(new_parameters, mode="denormalize_full")
+        for param_name, value in new_parameters.items():
+            self.device.set(param_name, value)
+
+
+class DeviceSolenoidAnalyser:
+    def __init__(self, measurer: DeviceMeasurer):
+        self.measurer = measurer
+
+    def measure_mean_var(self, times: int):
+        detectors_mean_var = self.measurer.device.get_detectors_mean_var(times)
+        return {name: {"mean": data["mean"], "var": data["var"]} for name, data in detectors_mean_var.items()}
+
     def measure_step_response(self):
         increments = [0.2 * i for i in range(1, 8)]
         differences = {}
         derivatives = {}
         steps = {}
-        init_derivative_steps = self.derivative_steps.copy()
+        init_derivative_steps = self.measurer.derivative_steps.copy()
         for increment in increments:
             self.derivative_steps = {solenoid: val * increment for solenoid, val in
-                                              init_derivative_steps.items()}
-            _, _, differences[increment] = self.measure_shifts(self.solenoid_names, calculate_derivative=False)
-            _, _, derivatives[increment] = self.measure_shifts(self.solenoid_names, calculate_derivative=True)
-            steps[increment] = {sol: init_derivative_steps[sol] * increment for sol in self.solenoid_names}
+                                     init_derivative_steps.items()}
+            _, _, differences[increment] = self.measurer.measure_shifts(self.measurer.solenoid_names, calculate_derivative=False)
+            _, _, derivatives[increment] = self.measurer.measure_shifts(self.measurer.solenoid_names, calculate_derivative=True)
+            steps[increment] = {sol: init_derivative_steps[sol] * increment for sol in self.measurer.solenoid_names}
         self.derivative_steps = init_derivative_steps
         return {"increments": increments, "steps": steps, "differences": differences, "derivatives": derivatives}
 
     def measure_full_system_state(self, include_timing: bool = True):
         if include_timing:
-            parameters, parameters_time = self._measure_execution_time(self.device.get_parameters)
-            (_, _, derivatives), derivatives_time = self._measure_execution_time(self.measure_shifts,
-                                                                         self.solenoid_names, calculate_derivative=True)
+            parameters, parameters_time = self._measure_execution_time(self.measurer.device.get_parameters)
+            (_, _, derivatives), derivatives_time = self._measure_execution_time(self.measurer.measure_shifts,
+                                                                                 self.measurer.solenoid_names,
+                                                                                 calculate_derivative=True)
             meta_time = {"parameters_time": parameters_time, "derivatives_time": derivatives_time}
         else:
-            parameters = self.device.get_parameters()
-            _, _, derivatives = self.measure_shifts(self.solenoid_names, calculate_derivative=True)
+            parameters = self.measurer.device.get_parameters()
+            _, _, derivatives = self.measurer.measure_shifts(self.measurer.solenoid_names, calculate_derivative=True)
             meta_time = None
 
         derivatives = {f"derivative_{key}": value for key, value in derivatives.items()}
@@ -222,31 +248,4 @@ class DeviceMeasurer:
         result = func(*args, **kwargs)
         return result, time.time() - start_time
 
-    def get_current_parameters(self, normalized: bool = False) -> ParameterDict:
-        """Retrieves and categorizes current device parameters.
 
-        Args:
-            normalized: Apply normalization to detector readings
-
-        Returns:
-            Tuple containing:
-            - Controlled parameters (solenoids/correctors)
-            - Detector readings (normalized if requested)
-        """
-        params = self.device.get_parameters()
-        #controlled = {name: params[name] for name in self.element_names if name not in self.detector_names}
-        #detectors = {name: params[name] for name in self.detector_names}
-        return self._normalize_data(params) if normalized else params
-
-
-    def set_parameters(self, new_parameters: ParameterDict, denormalized: bool =False) -> None:
-        """Updates device parameters to specified values.
-
-        Args:
-            new_parameters: Dictionary of parameter_name: value pairs.
-            denormalized: Should denormalize data to set.
-        """
-        if not denormalized:
-            new_parameters = self.normalizer.normalize(new_parameters, mode="denormalize_full")
-        for param_name, value in new_parameters.items():
-            self.device.set(param_name, value)
