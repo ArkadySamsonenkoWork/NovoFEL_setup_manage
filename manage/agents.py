@@ -125,6 +125,7 @@ class BaseAgent(ABC):
         self.element_names = element_names
         self.config_folder = Path(config_folder)
         self.detector_names, self.solenoid_names, self.corrector_names = utils.get_typed_names(element_names)
+        print(self.detector_names)
 
         (mean_var_path, derivative_steps_path, correctors_bounds_path) = ConfigPaths.get_agent_paths(config_folder)
         mean_var = DataHandler.read_yaml(mean_var_path)
@@ -172,7 +173,6 @@ class AgentInjector(BaseAgent):
                                          )
         return {"random": random_strategy, "value": value_strategy, "shift": shift_strategy}
 
-
     def add_stage(self, strategy_name: str, corrector_names: list[str], **kwargs):
         self.pipeline.append(PipelineStage(
             strategy_name=strategy_name,
@@ -212,6 +212,269 @@ class AgentInjector(BaseAgent):
         exploitation_steps = 3
 
         corrector_names = ["1MXY1_X", "1MXY1_Y"]
+        solenoids = ["1MS2"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY2_X", "1MXY2_Y"]
+        solenoids = ["1MS3"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY3_X", "1MXY4_X", "1MXY3_Y", "1MXY4_Y"]
+        #solenoids = ["1MS4", "1MS5", "1MS6"]
+        solenoids = ["1MS6"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY5_Y", "1MXY5_X", "1MXY6_Y", "1MXY6_X"]
+        #solenoids = ["1MS7", "1MS8"]
+        solenoids = ["1MS7"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+
+    def create_pipeline_phase_2(self):
+        strategy_name = "shift"
+        centralized = True,
+        scale_factor = 0.4
+        exploration_steps = 10
+        exploitation_steps = 3
+
+        corrector_names = ["1MXY1_X", "1MXY1_Y"]
+        solenoids = ["1MS2"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY2_X", "1MXY2_Y"]
+        solenoids = ["1MS3"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+
+        corrector_names = ["1MXY3_X", "1MXY4_X", "1MXY3_Y", "1MXY4_Y"]
+        #solenoids = ["1MS4", "1MS5", "1MS6"]
+        solenoids = ["1MS6"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY5_Y", "1MXY5_X", "1MXY6_Y", "1MXY6_X"]
+        #solenoids = ["1MS7", "1MS8"]
+        solenoids = ["1MS7"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+        #corrector_names = ["1MQ7_X"]
+        #solenoids = ["1MS8"]
+        #self.add_stage(strategy_name, corrector_names, centralized=centralized,
+        #               exploration_steps=exploration_steps,
+         #              exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+    def create_pipeline(self):
+        self.create_pipeline_phase_0()
+        self.create_pipeline_phase_1()
+        self.create_pipeline_phase_2()
+
+    def run(self):
+        start_time = time.time()
+        self.create_pipeline()
+        self.run_pipeline()
+        end_time = time.time()
+        print(f"spent time {end_time-start_time}")
+
+
+class AgentArca(BaseAgent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._strategies = self._init_strategies()
+        self.pipeline = []
+
+    def _init_strategies(self) -> dict[str, InjectorStrategy]:
+        random_strategy = RandomStrategy(self.detector_names, self.corrector_names,
+                                         self.corrector_limits, self.normalizer,
+                                         self.measurer, self.folder_data_path, self.detector_noise_var,
+                                         normalized=True,
+                                         )
+        value_strategy = ValueStrategy(self.detector_names, self.corrector_names,
+                                         self.corrector_limits, self.normalizer,
+                                         self.measurer, self.folder_data_path, self.detector_noise_var,
+                                         normalized=True,
+                                         )
+
+        return {"random": random_strategy, "value": value_strategy}
+
+
+    def add_stage(self, strategy_name: str, corrector_names: list[str], **kwargs):
+        self.pipeline.append(PipelineStage(
+            strategy_name=strategy_name,
+            corrector_names=corrector_names,
+            kwargs=kwargs
+        ))
+
+    def run_pipeline(self):
+        """Execute the entire optimization pipeline"""
+        for i, stage in enumerate(self.pipeline):
+            strategy = self._strategies[stage.strategy_name]
+
+            print(f"Running {stage.strategy_name} strategy with:")
+            print(f"Correctors: {stage.corrector_names}")
+
+            strategy.run(
+                corrector_names=stage.corrector_names,
+                **stage.kwargs
+            )
+            print(f"finish stage {i}")
+
+
+    def create_pipeline_phase_0(self):
+        strategy_name = "random"
+        corrector_names = self.corrector_names
+        centralized = False,
+        exploration_steps = 10
+        exploitation_steps = 3
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps, exploitation_steps=exploitation_steps)
+
+    def create_pipeline_phase_1(self):
+        strategy_name = "value"
+        centralized = True,
+        scale_factor = 0.8
+        exploration_steps = 14
+        exploitation_steps = 3
+
+        corrector_names = ["1MQ2", "1MQ2_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY2_X", "1MXY2_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY3_X", "1MXY4_X", "1MXY3_Y", "1MXY4_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY5_Y", "1MXY5_X", "1MXY6_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        corrector_names = ["1MQ7_X"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+    def create_pipeline_phase_2(self):
+        strategy_name = "value"
+        centralized = True,
+        scale_factor = 0.4
+        exploration_steps = 10
+        exploitation_steps = 3
+
+        corrector_names = ["1MXY1_X", "1MXY1_Y", "1MXY2_X", "1MXY2_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        corrector_names = ["1MXY3_X", "1MXY4_X", "1MXY3_Y", "1MXY4_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+
+        corrector_names = ["1MXY5_Y", "1MXY5_X", "1MXY6_Y"]
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps,
+                       exploitation_steps=exploitation_steps, scale_factor=scale_factor)
+
+        #corrector_names = ["1MQ7_X"]
+        #solenoids = ["1MS8"]
+        #self.add_stage(strategy_name, corrector_names, centralized=centralized,
+        #               exploration_steps=exploration_steps,
+         #              exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+
+    def create_pipeline(self):
+        self.create_pipeline_phase_0()
+        self.create_pipeline_phase_1()
+        self.create_pipeline_phase_2()
+
+    def run(self):
+        start_time = time.time()
+        self.create_pipeline()
+        self.run_pipeline()
+        end_time = time.time()
+        print(f"spent time {end_time-start_time}")
+
+
+class AgentAccelerator(BaseAgent):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._strategies = self._init_strategies()
+        self.pipeline = []
+
+    def _init_strategies(self) -> dict[str, InjectorStrategy]:
+        random_strategy = RandomStrategy(self.detector_names, self.corrector_names,
+                                         self.corrector_limits, self.normalizer,
+                                         self.measurer, self.folder_data_path, self.detector_noise_var,
+                                         normalized=True,
+                                         )
+        value_strategy = ValueStrategy(self.detector_names, self.corrector_names,
+                                       self.corrector_limits, self.normalizer,
+                                       self.measurer, self.folder_data_path, self.detector_noise_var,
+                                       normalized=True,
+                                       )
+
+        return {"random": random_strategy, "value": value_strategy}
+
+    def add_stage(self, strategy_name: str, corrector_names: list[str], **kwargs):
+        self.pipeline.append(PipelineStage(
+            strategy_name=strategy_name,
+            corrector_names=corrector_names,
+            kwargs=kwargs
+        ))
+
+    def run_pipeline(self):
+        """Execute the entire optimization pipeline"""
+        for i, stage in enumerate(self.pipeline):
+            strategy = self._strategies[stage.strategy_name]
+
+            print(f"Running {stage.strategy_name} strategy with:")
+            print(f"Correctors: {stage.corrector_names}")
+
+            strategy.run(
+                corrector_names=stage.corrector_names,
+                **stage.kwargs
+            )
+            print(f"finish stage {i}")
+
+    def create_pipeline_phase_0(self):
+        strategy_name = "random"
+        corrector_names = self.corrector_names
+        centralized = False,
+        exploration_steps = 10
+        exploitation_steps = 3
+        self.add_stage(strategy_name, corrector_names, centralized=centralized,
+                       exploration_steps=exploration_steps, exploitation_steps=exploitation_steps)
+
+    def create_pipeline_phase_1(self):
+        strategy_name = "value"
+        centralized = True,
+        scale_factor = 0.8
+        exploration_steps = 14
+        exploitation_steps = 3
+
+        corrector_names = ["1MQ2", "1MQ2_Ky"]
         solenoids = ["1MS1"]
         self.add_stage(strategy_name, corrector_names, centralized=centralized,
                        exploration_steps=exploration_steps,
@@ -235,14 +498,14 @@ class AgentInjector(BaseAgent):
                        exploration_steps=exploration_steps,
                        exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
 
-        corrector_names = ["1MQ71_X"]
+        corrector_names = ["1MQ7_X"]
         solenoids = ["1MS8"]
         self.add_stage(strategy_name, corrector_names, centralized=centralized,
                        exploration_steps=exploration_steps,
                        exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
 
     def create_pipeline_phase_2(self):
-        strategy_name = "shift"
+        strategy_name = "value"
         centralized = True,
         scale_factor = 0.4
         exploration_steps = 10
@@ -260,18 +523,17 @@ class AgentInjector(BaseAgent):
                        exploration_steps=exploration_steps,
                        exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
 
-
         corrector_names = ["1MXY5_Y", "1MXY5_X", "1MXY6_Y"]
         solenoids = ["1MS4", "1MS6"]
         self.add_stage(strategy_name, corrector_names, centralized=centralized,
                        exploration_steps=exploration_steps,
                        exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
 
-        corrector_names = ["1MQ71_X"]
-        solenoids = ["1MS8"]
-        self.add_stage(strategy_name, corrector_names, centralized=centralized,
-                       exploration_steps=exploration_steps,
-                       exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
+        # corrector_names = ["1MQ7_X"]
+        # solenoids = ["1MS8"]
+        # self.add_stage(strategy_name, corrector_names, centralized=centralized,
+        #               exploration_steps=exploration_steps,
+        #              exploitation_steps=exploitation_steps, solenoids=solenoids, scale_factor=scale_factor)
 
     def create_pipeline(self):
         self.create_pipeline_phase_0()
@@ -283,7 +545,7 @@ class AgentInjector(BaseAgent):
         self.create_pipeline()
         self.run_pipeline()
         end_time = time.time()
-        print(f"spent time {end_time-start_time}")
+        print(f"spent time {end_time - start_time}")
 
 
 class AnalyzeAgent(BaseAgent):

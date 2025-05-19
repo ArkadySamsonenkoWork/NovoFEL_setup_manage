@@ -1,0 +1,50 @@
+typed_data:
+  correctors: [
+      "1MQ7_Kx",
+      "1MQ8_Ky",
+      "1MQ2_Ky",
+      "1MQ3_Kx",
+      "1MQ4_Ky",
+      "1MQ41_x",
+      "1MQ5_Kx",
+      "1MQ51_X",  # Большая X?
+      "1MQ_K",
+      "1MQ71_X"
+      ]
+  detectors: [
+      "1BPM4_X",
+      "1BPM4_Y",
+      "1BPM4_SUM",
+      "1BPM5_X",
+      "1BPM5_Y",
+      "1BPM5_SUM", 
+      "1BPM6_X",
+      "1BPM6_Y",
+      "1BPM6_SUM", 
+    ]
+
+ordered_data: [
+    "1MXY1_Y",
+    "1MXY1_X",
+    "1MS1",
+    "1MXY2_Y",
+    "1MXY2_X",
+    "1MS2",
+    "1MXY3_Y",
+    "1MXY3_X",
+    "1MXY4_Y",
+    "1MXY4_X",
+    "1MS3",
+    "1MXY5_Y",
+    "1MXY5_X",
+    "1MXY6_Y",
+    "1MS4",
+    "1MS5",
+    "1MS6",
+    "1MQ71_X",
+    "1MS7",
+    "1MS8",
+    "1BPM3_X",
+    "1BPM3_Y",
+    "1BPM3_SUM"
+  ]

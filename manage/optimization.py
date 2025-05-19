@@ -343,10 +343,14 @@ class BaseOptimizer(ABC):
             readings += new_reading
         return model, points, readings
 
-    def _collect_new_reading(self, corrector_names: list[str], corrector_values: torch.Tensor, **kwargs):
-        solenoids = kwargs["solenoids"]
+    def _collect_new_reading(self, corrector_names: list[str], corrector_values: torch.Tensor | list[float],
+                             **kwargs):
+        if isinstance(corrector_values, torch.Tensor):
+            corrector_values = corrector_values.tolist()
+        else:
+            pass
         return self._collect_detector_readings(
-            [{n: v for n, v in zip(corrector_names, X)} for X in corrector_values.tolist()], solenoids
+            [{n: v for n, v in zip(corrector_names, X)} for X in corrector_values], **kwargs
         )
 
     def _get_retrain_interval(self) -> int:
@@ -367,8 +371,9 @@ class OptimizerShift(BaseOptimizer):
     def _get_metadata_parser_type(self) -> tp.Type[MetadataParser]:
         return ShiftMetadataParser
 
-    def _collect_detector_readings(self, parameter_sets: list[dict], solenoids: list[str]) -> list[list[float]]:
+    def _collect_detector_readings(self, parameter_sets: list[dict], **kwargs) -> list[list[float]]:
         """Measure detector values for multiple parameter configurations."""
+        solenoids = kwargs.get("solenoids")
         readings = []
         for params in parameter_sets:
             self.measurer.set_parameters(params)
@@ -382,7 +387,8 @@ class OptimizerShift(BaseOptimizer):
             readings.append(new_reading)
         return readings
 
-    def _get_initial_state(self, correctors: list[str], solenoids: list[str]) -> tuple[dict, dict]:
+    def _get_initial_state(self, correctors: list[str], **kwargs) -> tuple[list[float], list[float]]:
+        solenoids = kwargs.get("solenoids")
         parameters, value_reading, shift_reading = self.measurer.measure_shifts(normalized=self.normalized,
                                                                                  solenoid_names=solenoids)
         begin_points = [parameters[name] for name in correctors]
@@ -405,12 +411,12 @@ class OptimizerValues(BaseOptimizer):
         readings = []
         for params in parameter_sets:
             self.measurer.set_parameters(params)
-            current_params, readings = self.measurer.measure_parameters(normalized=self.normalized)
+            current_params, new_reading = self.measurer.measure_parameters(normalized=self.normalized)
             self._verify_parameter_update(current_params, params)
-            readings.append([readings[name] for name in self.detector_names])
+            readings.append([new_reading[name] for name in self.detector_names])
         return readings
 
-    def _get_initial_state(self, correctors: list[str], **kwargs) -> tuple[dict, dict]:
+    def _get_initial_state(self, correctors: list[str], **kwargs) -> tuple[list[float], list[float]]:
         current_params, readings = self.measurer.measure_parameters(normalized=self.normalized)
         begin_points = [current_params[name] for name in correctors]
         begin_readings = [readings[name] for name in self.detector_names]
@@ -426,7 +432,7 @@ class RandomOptimizerValues(OptimizerValues):
         init_points = []
         for _ in range(points):
             uniform_points = np.random.uniform(mins, maxes)
-            init_point = {key: value.item() for key, value in zip(bounds, uniform_points)}
+            init_point = uniform_points.tolist()
             init_points.append(init_point)
         return bounds, init_points
 
@@ -448,25 +454,28 @@ class RandomOptimizerValues(OptimizerValues):
         init_loss = sum(weight * reading**2 for weight, reading in zip(weights, init_readings))
         Yvar = [noise for noise in self.detector_noise_var.values()]
         ideal_loss = sum(weight * reading for weight, reading in zip(weights, Yvar))
+        success = False
         if init_loss <= ideal_loss * 10:
             print("init_loss is OK")
+            success = True
             pass
         else:
             print("init_loss is not OK")
-            init_points, bounds = self.get_random_points(corrector_names, corrector_limits, points=exploration_steps)
+            bounds, init_points = self.get_random_points(corrector_names, corrector_limits, points=exploration_steps)
             losses = []
             readings = []
             for point in init_points:
-                new_reading = self._collect_new_reading(corrector_names, point, **kwargs)
+                new_reading = self._collect_new_reading(corrector_names, [point], **kwargs)
+                print(new_reading)
                 loss = sum(weight * reading ** 2 for weight, reading in zip(weights, new_reading[0]))
                 losses.append(loss)
                 readings += new_reading
                 if loss <= ideal_loss * 10:
+                    success = True
                     break
-
-            # Переделать потом!!!!!!
+        if not success:
             min_value = min(losses)
             index = losses.index(min_value)
             min_point = init_points[index]
-            readings += self._collect_new_reading(corrector_names, min_point, **kwargs)
+            readings += self._collect_new_reading(corrector_names, [min_point], **kwargs)
         BaseOptimizer.stage += 1

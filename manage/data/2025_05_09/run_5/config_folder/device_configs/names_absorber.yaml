@@ -1,0 +1,17 @@
+typed_data:
+  correctors: [
+	"3MQ1_K"
+	"3MQ2_K"
+      ]
+
+  quadrupoles: [
+      "3MQ1",
+      "3MQ2"
+  ]
+
+ordered_data: [
+    "3MQ1",
+    "3MQ1_K",
+    "3MQ2",
+    "3MQ2_K",
+  ]

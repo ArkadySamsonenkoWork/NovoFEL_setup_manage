@@ -1,0 +1,72 @@
+typed_data:
+  correctors: [
+	"20MQ1_x",
+	"20MQ2_y",
+	"20MQ3_x",
+	"20MQ4_y",
+	"20MQ5_x",
+	"20MQ6_y",
+	"20MQ7_x",
+	"20MQ8_y",
+	"20MQ9_x",
+	"20MQ10_y",
+	"20MQ11_x",
+	"20MQ12_y",
+	"20MQ13_x",
+	"20MQ14_y",
+	"20MQ15_x",
+	"20MQ16_y",
+	"20MQ17_x",
+	"20MQ18_y",
+	"20MQ19_y"
+      ]
+  quadrupoles: [
+	"20MQ1",
+	"20MQ2",
+	"20MQ3D",
+	"20MQ5D",
+	"20MQ7D",
+	"20MQ9",
+	"20MQ10",
+	"20MQ11D",
+	"20MQ13D",
+	"20MQ15D",
+	"20MQ18",
+    ]
+  detectors: [
+  "2BPM1",
+  "2BPM2",
+  "2BPM3",
+  "2BPM5",
+  "2BPM6",
+  "2BPM7",
+  "2BPM8",
+  "2BPM9",
+  
+ ]
+
+ordered_data: [
+    "1MXY1_Y",
+    "1MXY1_X",
+    "1MS1",
+    "1MXY2_Y",
+    "1MXY2_X",
+    "1MS2",
+    "1MXY3_Y",
+    "1MXY3_X",
+    "1MXY4_Y",
+    "1MXY4_X",
+    "1MS3",
+    "1MXY5_Y",
+    "1MXY5_X",
+    "1MXY6_Y",
+    "1MS4",
+    "1MS5",
+    "1MS6",
+    "1MQ71_X",
+    "1MS7",
+    "1MS8",
+    "1BPM3_X",
+    "1BPM3_Y",
+    "1BPM3_SUM"
+  ]

@@ -1,0 +1,139 @@
+# Injector
+
+1MS1:
+  max: 6.194
+  min: 5.938
+1MS2:
+  max: 7.63
+  min: 6.83
+1MS3:
+  max: 5.396
+  min: 4.108
+1MS4:
+  max: 6.016
+  min: 3.528
+1MS5:
+  max: 1.342
+  min: 1.216
+1MS6:
+  max: 4.966
+  min: 3.214
+1MS7:
+  max: 3.932
+  min: 1.982
+1MS8:
+  max: 1.174
+  min: 0.0
+1MXY1_X:
+  max: -0.177
+  min: -0.209
+1MXY1_Y:
+  max: 0.1176
+  min: 0.081
+1MXY2_X:
+  max: 0.1884
+  min: 0.0864
+1MXY2_Y:
+  max: 0.079
+  min: -0.003
+1MXY3_X:
+  max: -0.2652
+  min: -0.4428
+1MXY3_Y:
+  max: 0.0804
+  min: -0.0233
+1MXY4_X:
+  max: 0.3372
+  min: 0.1914
+1MXY4_Y:
+  max: 0.2562
+  min: 0.069
+1MXY5_X:
+  max: -0.109
+  min: -0.3246
+1MXY5_Y:
+  max: -0.0948
+  min: -0.291
+1MQ7_X:
+  max: 0.293
+  min: 0.0099
+1MXY6_Y:
+  max: 0.5089
+  min: 0.276
+1MXY6_X:
+  max: 0.293
+  min: 0.0099
+
+# Accelerator
+20MQ1:
+  max: 1.255
+  min: 0.748
+20MQ10_Y:
+  max: 0.643
+  min: 0.445
+20MQ11D:
+  max: 1.473
+  min: 0.859
+20MQ11_X:
+  max: 0.203
+  min: 0.0
+20MQ12_Y:
+  max: 0.2736
+  min: 0.1209
+20MQ13D:
+  max: 1.525
+  min: 0.883
+20MQ13_X:
+  max: 0.268
+  min: 0.0
+20MQ14_Y:
+  max: 0.022
+  min: 0.0
+20MQ15D:
+  max: 1.647
+  min: 1.003
+20MQ15_X:
+  max: 0.4062
+  min: 0.2649
+20MQ16_Y:
+  max: 0.0
+  min: 0.0
+20MQ17:
+  max: 1.204
+  min: 0.741
+20MQ17_X:
+  max: 0.411
+  min: 0.253
+20MQ18_Y:
+  max: 0.125
+  min: -0.025
+20MQ2:
+  max: 1.646
+  min: 0.946
+20MQ2_Y:
+  max: 0.047
+  min: -0.2334
+20MQ3D:
+  max: 1.542
+  min: 0.934
+20MQ3_X:
+  max: 0.1596
+  min: 0.0414
+20MQ5D:
+  max: 1.463
+  min: 0.809
+20MQ5_X:
+  max: 0.165
+  min: 0.0702
+20MQ6_Y:
+  max: 0.089
+  min: 0.0216
+20MQ7D:
+  max: 1.507
+  min: 0.778
+20MQ9:
+  max: 1.268
+  min: 0.754
+20MQ9_X:
+  max: 0.1572
+  min: -0.0089
