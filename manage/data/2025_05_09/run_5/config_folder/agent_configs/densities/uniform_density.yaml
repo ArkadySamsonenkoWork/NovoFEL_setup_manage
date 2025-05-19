@@ -1,0 +1,219 @@
+1MQ2:
+  max: 0.125
+  min: -0.1998
+1MQ2_Ky:
+  max: 0.073
+  min: -0.0984
+1MQ3:
+  max: 0.348
+  min: 0.185
+1MQ3_Kx:
+  max: 0.0108
+  min: -0.1692
+1MQ4:
+  max: 0.4044
+  min: 0.13
+1MQ41:
+  max: 0.1038
+  min: -0.2868
+1MQ41_x:
+  max: 0.2364
+  min: -0.102
+1MQ4_Ky:
+  max: 0.2658
+  min: -0.1638
+1MQ5:
+  max: -0.5526
+  min: -0.902
+1MQ51:
+  max: 0.242
+  min: 0.034
+1MQ51_X:
+  max: 0.072
+  min: -0.098
+1MQ5_Kx:
+  max: 0.078
+  min: -0.021
+1MQ6:
+  max: 0.5982
+  min: 0.4302
+1MQ6_K:
+  max: 0.0642
+  min: -0.1644
+1MQ7:
+  max: -0.0342
+  min: -0.4686
+1MQ71:
+  max: 0.054
+  min: -0.4098
+1MQ71_X:
+  max: 0.293
+  min: 0.0099
+1MQ7_Kx:
+  max: 0.0468
+  min: -0.107
+1MQ8:
+  max: 0.7068
+  min: 0.376
+1MQ8_Ky:
+  max: 0.1128
+  min: -0.08
+1MS1:
+  max: 6.194
+  min: 5.938
+1MS2:
+  max: 7.63
+  min: 6.83
+1MS3:
+  max: 5.396
+  min: 4.108
+1MS4:
+  max: 6.016
+  min: 3.528
+1MS5:
+  max: 1.342
+  min: 1.216
+1MS6:
+  max: 4.966
+  min: 3.214
+1MS7:
+  max: 3.932
+  min: 1.982
+1MS8:
+  max: 1.174
+  min: 0.0
+1MXY1_X:
+  max: -0.177
+  min: -0.209
+1MXY1_Y:
+  max: 0.1176
+  min: 0.081
+1MXY2_X:
+  max: 0.1884
+  min: 0.0864
+1MXY2_Y:
+  max: 0.079
+  min: -0.003
+1MXY3_X:
+  max: -0.2652
+  min: -0.4428
+1MXY3_Y:
+  max: 0.0804
+  min: -0.0233
+1MXY4_X:
+  max: 0.3372
+  min: 0.1914
+1MXY4_Y:
+  max: 0.2562
+  min: 0.069
+1MXY5_X:
+  max: -0.109
+  min: -0.3246
+1MXY5_Y:
+  max: -0.0948
+  min: -0.291
+1MXY6_Y:
+  max: 0.5089
+  min: 0.276
+20MQ1:
+  max: 1.255
+  min: 0.748
+20MQ10:
+  max: -0.736
+  min: -1.206
+20MQ10_y:
+  max: 0.643
+  min: 0.445
+20MQ11D:
+  max: 1.473
+  min: 0.859
+20MQ11_x:
+  max: 0.203
+  min: 0.0
+20MQ12_y:
+  max: 0.2736
+  min: 0.1209
+20MQ13D:
+  max: 1.525
+  min: 0.883
+20MQ13_x:
+  max: 0.268
+  min: 0.0
+20MQ14_y:
+  max: 0.022
+  min: 0.0
+20MQ15D:
+  max: 1.647
+  min: 1.003
+20MQ15_x:
+  max: 0.4062
+  min: 0.2649
+20MQ16_y:
+  max: 0.0
+  min: 0.0
+20MQ17_x:
+  max: 0.411
+  min: 0.253
+20MQ18:
+  max: -0.726
+  min: -1.235
+20MQ18_y:
+  max: 0.125
+  min: -0.025
+20MQ19_y:
+  max: 0.3234
+  min: -0.817
+20MQ1_x:
+  max: 0.091
+  min: -0.0732
+20MQ2:
+  max: 1.646
+  min: 0.946
+20MQ2_y:
+  max: 0.047
+  min: -0.2334
+20MQ3D:
+  max: 1.542
+  min: 0.934
+20MQ3_x:
+  max: 0.1596
+  min: 0.0414
+20MQ4_y:
+  max: 0.086
+  min: -0.1482
+20MQ5D:
+  max: 1.463
+  min: 0.809
+20MQ5_x:
+  max: 0.165
+  min: 0.0702
+20MQ6_y:
+  max: 0.089
+  min: 0.0216
+20MQ7D:
+  max: 1.507
+  min: 0.778
+20MQ7_x:
+  max: 0.309
+  min: 0.197
+20MQ8_y:
+  max: 0.0
+  min: -0.0072
+20MQ9:
+  max: 1.268
+  min: 0.754
+20MQ9_x:
+  max: 0.1572
+  min: -0.0089
+3MQ1:
+  max: 2.246
+  min: 1.747
+3MQ1_K:
+  max: 0.0
+  min: -0.202
+3MQ2:
+  max: -1.5169
+  min: -2.522
+3MQ2_K:
+  max: 0.0
+  min: 0.0

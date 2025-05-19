@@ -1,0 +1,50 @@
+typed_data:
+  correctors: [
+    "1MQ2_Ky",
+    "1MQ3_Kx",
+    "1MQ4_Ky",
+    "1MQ41_x",
+    "1MQ5_Kx",
+    "1MQ51_X",
+    "1MQ6_K",
+    "1MQ71_X",
+    "1MQ7_Kx",
+    "1MQ8_Ky",
+      ],
+  quadrupoles: [
+    "1MQ2",
+    "1MQ3",
+    "1MQ4",
+    "1MQ41",
+    "1MQ5",
+    "1MQ51"",
+    "1MQ6",
+    "1MQ71",
+    "1MQ7",
+    "1MQ8"
+  ]
+
+ordered_data: [
+    "1MQ2",
+    "1MQ2_Ky",
+    "1MQ3",
+    "1MQ3_Kx",
+    "1MQ4",
+    "1MQ4_Ky",
+    "1MQ41",
+
+    "1MQ41_x",
+    "1MQ5",
+    "1MQ5_Kx",
+    "1MQ51",
+    "1MQ51_X",
+
+    "1MQ6",
+    "1MQ6_K",
+    "1MQ71",
+    "1MQ71_X",
+    "1MQ7",
+    "1MQ7_Kx",
+    "1MQ8",
+    "1MQ8_Ky",
+  ]

@@ -28,7 +28,7 @@ class Plotter:
         self.parameters = {name: [] for name in self.element_names}
         self.steps = []
         self.figures = self._create_figures()
-        self.max_len = mexlen
+        self.maxlen = mexlen
 
     def update_from_queue(self):
         """
@@ -57,9 +57,11 @@ class Plotter:
                     trace.x = self.steps
                     trace.y = self.parameters[name]
 
-            if len(self.steps) > self.max_len:
-                self.steps = self.steps[self.max_len // 2:]
-                self.parameters = self.parameters[self.max_len // 2:]
+            if len(self.steps) > self.maxlen:
+                self.steps = self.steps[self.maxlen // 2:]
+                for name, value in measurement.items():
+                    self.parameters[name] = self.parameters[name][self.maxlen // 2:]
+                #self.parameters = self.parameters[self.max_len // 2:]
 
             return True
         except queue.Empty:

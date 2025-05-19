@@ -1,0 +1,27 @@
+correctors:
+  1MXY1_Y: {mean: 0.0, var: 1.0}
+  1MXY2_Y: {mean: 0.0, var: 1.0}
+  1MXY2_X: {mean: 0.0, var: 1.0}
+  1MXY3_Y: {mean: 0.0, var: 1.0}
+  1MXY3_X: {mean: -0.0, var: 1.0}
+  1MXY4_Y: {mean: 0.0, var: 1.0}
+  1MXY4_X: {mean: 0.0, var: 1.0}
+  1MXY5_Y: {mean: -0.0, var: 1.0}
+  1MXY5_X: {mean: -0.0, var: 1.0}
+  1MXY6_Y: {mean: 0.0, var: 1.0}
+  1MQ71_X: {mean: 0.0, var: 1.0}
+
+solenoids:
+  1MS1: {mean: 0.0, var: 1.0}
+  1MS2: {mean: 0.0, var: 1.0}
+  1MS3: {mean: 0.0, var: 1.0}
+  1MS4: {mean: 0.0, var: 1.0}
+  1MS5: {mean: 0.0, var: 1.0}
+  1MS6: {mean: 0.0, var: 1.0}
+  1MS7: {mean: 0.0, var: 1.0}
+  1MS8: {mean: 0.0, var: 1.0}
+
+detectors:
+  1BPM3_X: {mean: 0, var: 0.017609}
+  1BPM3_Y: {mean: 0, var: 0.00080656}
+  1BPM3_SUM: {mean: 1843.0, var: 18.1}

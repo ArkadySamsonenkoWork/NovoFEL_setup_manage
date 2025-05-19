@@ -1,0 +1,105 @@
+typed_data:
+  correctors: [
+    "1MQ2_Ky",
+    "1MQ3_Kx",
+    "1MQ4_Ky",
+    "1MQ41_x",
+    "1MQ5_Kx",
+    "1MQ51_X",
+    "1MQ6_K",
+    #"1MQ71_X",
+    "1MQ7_Kx",
+    "1MQ8_Ky",
+  ]
+  quadrupoles: [
+    "1MQ2",
+    "1MQ3",
+    "1MQ4",
+    "1MQ41",
+    "1MQ5",
+    "1MQ51",
+    "1MQ6",
+    "1MQ71",
+    "1MQ7",
+    "1MQ8"
+  ]
+
+ordered_data: [
+
+    "20MQ1",
+    "20MQ1_X",
+
+    "2BPM1_X",
+    "2BPM1_Y",
+    "2BPM1_SUM",
+
+    "20MQ2",
+    "20MQ2_Y",
+
+    "20MQ3D",
+    "20MQ3_X",
+
+    "2BPM2_X",
+    "2BPM2_Y",
+    "2BPM2_SUM",
+
+    "20MQ4_Y",
+
+    "20MQ5D",
+    "20MQ5_X",
+
+    "2BPM3_X",
+    "2BPM3_Y",
+    "2BPM3_SUM",
+
+    "20MQ6_Y",
+
+    "20MQ7D",
+    "20MQ7_X",
+    "20MQ8_Y",
+
+    "20MQ9",
+    "20MQ9_X",
+
+    "2BPM5_X",
+    "2BPM5_Y",
+    "2BPM5_SUM",
+
+    "20MQ10_Y",
+
+    "20MQ11D",
+    "20MQ11_X",
+
+    "2BPM6_X",
+    "2BPM6_Y",
+    "2BPM6_SUM",
+
+    "20MQ12_Y",
+
+    "20MQ13D",
+    "20MQ13_X",
+
+    "2BPM7_X",
+    "2BPM7_Y",
+    "2BPM7_SUM",
+
+    "20MQ14_Y",
+
+    "20MQ15D",
+    "20MQ15_X",
+
+    "2BPM8_X",
+    "2BPM8_Y",
+    "2BPM8_SUM",
+
+    "20MQ16_Y",
+
+    "20MQ17",
+    "20MQ17_X",
+
+    "2BPM9_X",
+    "2BPM9_Y",
+    "2BPM9_SUM",
+
+    "20MQ18_Y",
+  ]

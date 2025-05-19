@@ -132,7 +132,7 @@ class MultiOutputModel:
         cand_X, cand_f = self._calculate_best_point(X, Y)
         if cand_f < self._best_f:
             self._best_f = cand_f
-            self._cand_X = cand_X
+            self._best_X = cand_X
 
     def _create_model(self, train_X, train_Y):
         raise NotImplementedError("Add _create_model_method")
